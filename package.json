@@ -1,0 +1,602 @@
+{
+  "name": "stock-eagle-eye",
+  "displayName": "stock-eagle-eye",
+  "description": "在 VS Code 中查看股票和基金基础行情，并管理自定义分组。",
+  "version": "1.0.1",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/choly192/astock-fund.git"
+  },
+  "keywords": [
+    "stock",
+    "股票",
+    "行情",
+    "自选股",
+    "基金",
+    "VS Code"
+  ],
+  "publisher": "stock-eagle-eye",
+  "icon": "resources/stock-eagle-eye.png",
+  "engines": {
+    "vscode": "^1.59.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:stockEagleEyeView.stock",
+    "onView:stockEagleEyeView.fund",
+    "onCommand:stock-eagle-eye.refreshStock",
+    "onCommand:stock-eagle-eye.refreshFund",
+    "onCommand:stock-eagle-eye.exportGroups",
+    "onCommand:stock-eagle-eye.importGroups"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "stockEagleEyeMenu",
+          "title": "EAGLEEYE",
+          "icon": "resources/stock-eagle-eye.svg"
+        }
+      ]
+    },
+    "views": {
+      "stockEagleEyeMenu": [
+        {
+          "id": "stockEagleEyeView.stock",
+          "name": "STOCK GROUP"
+        },
+        {
+          "id": "stockEagleEyeView.fund",
+          "name": "FUND GROUP"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "stock-eagle-eye.refreshStock",
+        "title": "刷新股票行情",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "stock-eagle-eye.sortStock",
+        "title": "按涨跌幅排序",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "stock-eagle-eye.addStock",
+        "title": "添加股票",
+        "icon": "$(add)"
+      },
+      {
+        "command": "stock-eagle-eye.addStocks",
+        "title": "批量添加股票",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "stock-eagle-eye.addStockGroup",
+        "title": "新建股票分组",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "stock-eagle-eye.renameStockGroup",
+        "title": "重命名分组",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "stock-eagle-eye.removeStockGroup",
+        "title": "删除分组",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "stock-eagle-eye.moveStockToGroup",
+        "title": "移动到其他分组",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "stock-eagle-eye.setStockTop",
+        "title": "股票置顶",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "stock-eagle-eye.setStockUp",
+        "title": "股票上移",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "stock-eagle-eye.setStockDown",
+        "title": "股票下移",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "stock-eagle-eye.deleteStock",
+        "title": "删除股票",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "stock-eagle-eye.stockTrend",
+        "title": "查看股票行情",
+        "icon": "$(graph-line)"
+      },
+      {
+        "command": "stock-eagle-eye.setStockAlert",
+        "title": "设置股票提醒",
+        "icon": "$(bell)"
+      },
+      {
+        "command": "stock-eagle-eye.manageStockAlerts",
+        "title": "stock-eagle-eye: 管理股票提醒",
+        "icon": "$(bell)"
+      },
+      {
+        "command": "stock-eagle-eye.refreshFund",
+        "title": "刷新基金净值",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "stock-eagle-eye.sortFund",
+        "title": "按日涨跌幅排序",
+        "icon": "$(sort-precedence)"
+      },
+      {
+        "command": "stock-eagle-eye.addFund",
+        "title": "添加基金",
+        "icon": "$(add)"
+      },
+      {
+        "command": "stock-eagle-eye.addFunds",
+        "title": "批量添加基金",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "stock-eagle-eye.addFundGroup",
+        "title": "新建基金分组",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "stock-eagle-eye.renameFundGroup",
+        "title": "重命名基金分组",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "stock-eagle-eye.removeFundGroup",
+        "title": "删除基金分组",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "stock-eagle-eye.moveFundToGroup",
+        "title": "移动到其他基金分组",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "stock-eagle-eye.setFundTop",
+        "title": "基金置顶",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "stock-eagle-eye.setFundUp",
+        "title": "基金上移",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "stock-eagle-eye.setFundDown",
+        "title": "基金下移",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "stock-eagle-eye.deleteFund",
+        "title": "删除基金",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "stock-eagle-eye.fundTrend",
+        "title": "查看基金净值走势",
+        "icon": "$(graph-line)"
+      },
+      {
+        "command": "stock-eagle-eye.addStockToBar",
+        "title": "添加到状态栏"
+      },
+      {
+        "command": "stock-eagle-eye.setStockStatusBar",
+        "title": "设置状态栏股票",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "stock-eagle-eye.toggleStatusBarVisibility",
+        "title": "stock-eagle-eye: 显示/隐藏股票状态栏"
+      },
+      {
+        "command": "stock-eagle-eye.toggleStatusBarIconVisibility",
+        "title": "stock-eagle-eye: 显示/隐藏状态栏图标"
+      },
+      {
+        "command": "stock-eagle-eye.openConfigPage",
+        "title": "stock-eagle-eye: 打开股票行情设置"
+      },
+      {
+        "command": "stock-eagle-eye.exportGroups",
+        "title": "stock-eagle-eye: 导出股票和基金分组",
+        "icon": "$(export)"
+      },
+      {
+        "command": "stock-eagle-eye.importGroups",
+        "title": "stock-eagle-eye: 导入股票和基金分组",
+        "icon": "$(cloud-download)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "stock-eagle-eye.toggleStatusBarVisibility",
+        "key": "ctrl+alt+t",
+        "mac": "cmd+alt+t"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "stock-eagle-eye.refreshStock",
+          "when": "view == stockEagleEyeView.stock",
+          "group": "navigation@1"
+        },
+        {
+          "command": "stock-eagle-eye.sortStock",
+          "when": "view == stockEagleEyeView.stock",
+          "group": "navigation@2"
+        },
+        {
+          "command": "stock-eagle-eye.addStock",
+          "when": "view == stockEagleEyeView.stock",
+          "group": "navigation@3"
+        },
+        {
+          "command": "stock-eagle-eye.addStockGroup",
+          "when": "view == stockEagleEyeView.stock",
+          "group": "navigation@4"
+        },
+        {
+          "command": "stock-eagle-eye.setStockStatusBar",
+          "when": "view == stockEagleEyeView.stock",
+          "group": "navigation@5"
+        },
+        {
+          "command": "stock-eagle-eye.addStocks",
+          "when": "view == stockEagleEyeView.stock",
+          "group": "management@1"
+        },
+        {
+          "command": "stock-eagle-eye.exportGroups",
+          "when": "view == stockEagleEyeView.stock",
+          "group": "management@2"
+        },
+        {
+          "command": "stock-eagle-eye.importGroups",
+          "when": "view == stockEagleEyeView.stock",
+          "group": "management@3"
+        },
+        {
+          "command": "stock-eagle-eye.manageStockAlerts",
+          "when": "view == stockEagleEyeView.stock",
+          "group": "management@4"
+        },
+        {
+          "command": "stock-eagle-eye.refreshFund",
+          "when": "view == stockEagleEyeView.fund",
+          "group": "navigation@1"
+        },
+        {
+          "command": "stock-eagle-eye.sortFund",
+          "when": "view == stockEagleEyeView.fund",
+          "group": "navigation@2"
+        },
+        {
+          "command": "stock-eagle-eye.addFund",
+          "when": "view == stockEagleEyeView.fund",
+          "group": "navigation@3"
+        },
+        {
+          "command": "stock-eagle-eye.addFundGroup",
+          "when": "view == stockEagleEyeView.fund",
+          "group": "navigation@4"
+        },
+        {
+          "command": "stock-eagle-eye.addFunds",
+          "when": "view == stockEagleEyeView.fund",
+          "group": "management@1"
+        },
+        {
+          "command": "stock-eagle-eye.exportGroups",
+          "when": "view == stockEagleEyeView.fund",
+          "group": "management@2"
+        },
+        {
+          "command": "stock-eagle-eye.importGroups",
+          "when": "view == stockEagleEyeView.fund",
+          "group": "management@3"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "stock-eagle-eye.addStock",
+          "when": "view == stockEagleEyeView.stock && viewItem == stockGroup",
+          "group": "inline@1"
+        },
+        {
+          "command": "stock-eagle-eye.renameStockGroup",
+          "when": "view == stockEagleEyeView.stock && viewItem == stockGroup",
+          "group": "group@1"
+        },
+        {
+          "command": "stock-eagle-eye.removeStockGroup",
+          "when": "view == stockEagleEyeView.stock && viewItem == stockGroup",
+          "group": "group@2"
+        },
+        {
+          "command": "stock-eagle-eye.addStocks",
+          "when": "view == stockEagleEyeView.stock && viewItem == stockGroup",
+          "group": "group@3"
+        },
+        {
+          "command": "stock-eagle-eye.setStockTop",
+          "when": "view == stockEagleEyeView.stock && viewItem == stock",
+          "group": "inline@1"
+        },
+        {
+          "command": "stock-eagle-eye.setStockUp",
+          "when": "view == stockEagleEyeView.stock && viewItem == stock",
+          "group": "inline@2"
+        },
+        {
+          "command": "stock-eagle-eye.setStockDown",
+          "when": "view == stockEagleEyeView.stock && viewItem == stock",
+          "group": "inline@3"
+        },
+        {
+          "command": "stock-eagle-eye.stockTrend",
+          "when": "view == stockEagleEyeView.stock && viewItem == stock",
+          "group": "stock@1"
+        },
+        {
+          "command": "stock-eagle-eye.moveStockToGroup",
+          "when": "view == stockEagleEyeView.stock && viewItem == stock",
+          "group": "stock@2"
+        },
+        {
+          "command": "stock-eagle-eye.addStockToBar",
+          "when": "view == stockEagleEyeView.stock && viewItem == stock",
+          "group": "stock@3"
+        },
+        {
+          "command": "stock-eagle-eye.setStockAlert",
+          "when": "view == stockEagleEyeView.stock && viewItem == stock",
+          "group": "stock@4"
+        },
+        {
+          "command": "stock-eagle-eye.deleteStock",
+          "when": "view == stockEagleEyeView.stock && (viewItem == stock || viewItem == nodata)",
+          "group": "stock@5"
+        },
+        {
+          "command": "stock-eagle-eye.addFund",
+          "when": "view == stockEagleEyeView.fund && viewItem == fundGroup",
+          "group": "inline@1"
+        },
+        {
+          "command": "stock-eagle-eye.renameFundGroup",
+          "when": "view == stockEagleEyeView.fund && viewItem == fundGroup",
+          "group": "group@1"
+        },
+        {
+          "command": "stock-eagle-eye.removeFundGroup",
+          "when": "view == stockEagleEyeView.fund && viewItem == fundGroup",
+          "group": "group@2"
+        },
+        {
+          "command": "stock-eagle-eye.addFunds",
+          "when": "view == stockEagleEyeView.fund && viewItem == fundGroup",
+          "group": "group@3"
+        },
+        {
+          "command": "stock-eagle-eye.setFundTop",
+          "when": "view == stockEagleEyeView.fund && viewItem == fund",
+          "group": "inline@1"
+        },
+        {
+          "command": "stock-eagle-eye.setFundUp",
+          "when": "view == stockEagleEyeView.fund && viewItem == fund",
+          "group": "inline@2"
+        },
+        {
+          "command": "stock-eagle-eye.setFundDown",
+          "when": "view == stockEagleEyeView.fund && viewItem == fund",
+          "group": "inline@3"
+        },
+        {
+          "command": "stock-eagle-eye.fundTrend",
+          "when": "view == stockEagleEyeView.fund && viewItem == fund",
+          "group": "fund@1"
+        },
+        {
+          "command": "stock-eagle-eye.moveFundToGroup",
+          "when": "view == stockEagleEyeView.fund && viewItem == fund",
+          "group": "fund@2"
+        },
+        {
+          "command": "stock-eagle-eye.deleteFund",
+          "when": "view == stockEagleEyeView.fund && (viewItem == fund || viewItem == fundNoData)",
+          "group": "fund@3"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "stock-eagle-eye 股票行情",
+      "properties": {
+        "stock-eagle-eye.stocks": {
+          "type": "array",
+          "default": [
+            [
+              "sh000001",
+              "sh000016",
+              "sh000300",
+              "sh000688",
+              "sz399006"
+            ],
+            [
+              "sz002213"
+            ]
+          ],
+          "description": "按分组保存的股票代码。建议通过侧栏管理。"
+        },
+        "stock-eagle-eye.stockGroups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "INDEX",
+            "A STOCK"
+          ],
+          "description": "股票分组名称。建议通过侧栏管理。"
+        },
+        "stock-eagle-eye.funds": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9]{6}$"
+            }
+          },
+          "default": [
+            [
+              "110022"
+            ]
+          ],
+          "description": "按分组保存的基金代码。建议通过侧栏管理。"
+        },
+        "stock-eagle-eye.fundGroups": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "FUND"
+          ],
+          "description": "基金分组名称。建议通过侧栏管理。"
+        },
+        "stock-eagle-eye.fundSort": {
+          "type": "number",
+          "enum": [
+            0,
+            1,
+            -1
+          ],
+          "default": 0,
+          "description": "基金排序：0 为组内顺序，1 为日涨跌幅升序，-1 为降序。"
+        },
+        "stock-eagle-eye.statusBarStock": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "default": [
+            "sh000001"
+          ],
+          "description": "状态栏展示的股票代码，最多 4 只。"
+        },
+        "stock-eagle-eye.interval": {
+          "type": "number",
+          "minimum": 3000,
+          "default": 5000,
+          "description": "股票行情轮询间隔，单位为毫秒，最小 3000。"
+        },
+        "stock-eagle-eye.riseColor": {
+          "type": "string",
+          "default": "#ff7b7b",
+          "description": "状态栏上涨颜色。"
+        },
+        "stock-eagle-eye.fallColor": {
+          "type": "string",
+          "default": "#89d185",
+          "description": "状态栏下跌颜色。"
+        },
+        "stock-eagle-eye.hideStatusBar": {
+          "type": "boolean",
+          "default": false,
+          "description": "隐藏股票状态栏。"
+        },
+        "stock-eagle-eye.hideStatusBarIcon": {
+          "type": "boolean",
+          "default": false,
+          "description": "隐藏状态栏涨跌图标。"
+        },
+        "stock-eagle-eye.stockSort": {
+          "type": "number",
+          "enum": [
+            0,
+            1,
+            -1
+          ],
+          "default": 0,
+          "description": "股票排序：0 为组内顺序，1 为涨跌幅升序，-1 为降序。"
+        },
+        "stock-eagle-eye.labelFormat": {
+          "type": "object",
+          "default": {
+            "statusBarLabelFormat": "${name} ${price} ${icon} ${percent}"
+          },
+          "description": "状态栏文字模板。"
+        }
+      }
+    },
+    "viewsWelcome": [
+      {
+        "view": "stockEagleEyeView.stock",
+        "contents": "暂无股票。\n[添加股票](command:stock-eagle-eye.addStock)\n[新建分组](command:stock-eagle-eye.addStockGroup)"
+      },
+      {
+        "view": "stockEagleEyeView.fund",
+        "contents": "暂无基金。\n[添加基金](command:stock-eagle-eye.addFund)\n[新建分组](command:stock-eagle-eye.addFundGroup)"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "clean": "node -e \"for(const dir of ['out','dist'])require('fs').rmSync(dir,{recursive:true,force:true})\"",
+    "compile": "npm run clean && tsc -p ./ && node scripts/build.js",
+    "lint": "eslint src --ext ts --ignore-path .gitignore",
+    "watch": "node scripts/build.js --watch",
+    "preview:chart": "npm run compile && node scripts/create-chart-preview.js",
+    "pretest": "npm run compile",
+    "test": "node ./out/_test/runTest.js",
+    "test:unit": "npm run compile && node ./out/_test/runUnitTests.js",
+    "package": "vsce package --no-dependencies -o ./"
+  },
+  "devDependencies": {
+    "@types/glob": "^7.1.1",
+    "@types/mocha": "^7.0.2",
+    "@types/node": "^18.0.0",
+    "@types/vscode": "1.59.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "@vscode/test-electron": "^2.3.9",
+    "axios": "^1.19.0",
+    "esbuild": "^0.25.12",
+    "eslint": "^8.57.1",
+    "glob": "^7.1.6",
+    "lightweight-charts": "^4.2.3",
+    "mocha": "^7.1.2",
+    "prettier": "^2.1.2",
+    "typescript": "^5.0.0",
+    "vsce": "^2.15.0"
+  },
+  "extensionKind": [
+    "ui",
+    "workspace"
+  ]
+}
