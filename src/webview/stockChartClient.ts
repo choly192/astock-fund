@@ -73,6 +73,7 @@ const chart = createChart(container, {
     textColor: '#7d828c',
     fontFamily: 'Consolas, "Microsoft YaHei", monospace',
     fontSize: 11,
+    attributionLogo: false,
   },
   grid: {
     vertLines: { color: '#1d2025' },

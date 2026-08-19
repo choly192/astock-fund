@@ -1,5 +1,9 @@
 import * as assert from 'assert';
+import * as fs from 'fs';
+import * as path from 'path';
 import { getEastMoneyStockTarget, getStockTrendHtml } from '../../webview/stockTrendHtml';
+
+const projectRoot = path.resolve(__dirname, '../../..');
 
 suite('Stock trend webview', () => {
   test('maps supported markets to East Money market identifiers', () => {
@@ -34,6 +38,12 @@ suite('Stock trend webview', () => {
     assert.ok(!html.includes('image.sinajs.cn'));
     assert.ok(!html.includes('旧数据'));
     assert.ok(!html.includes('<dt>获取</dt>'));
+
+    const chartClient = fs.readFileSync(
+      path.join(projectRoot, 'src', 'webview', 'stockChartClient.ts'),
+      'utf8'
+    );
+    assert.ok(chartClient.includes('attributionLogo: false'));
   });
 
   test('escapes quote text before placing it in HTML', () => {

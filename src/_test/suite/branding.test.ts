@@ -14,13 +14,18 @@ function getTextFiles(directory: string): string[] {
 }
 
 suite('Brand manifest', () => {
-  test('uses the new project identity and initial version', () => {
+  test('uses the new project identity and a synchronized 1.x version', () => {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    const lockfile = JSON.parse(
+      fs.readFileSync(path.join(projectRoot, 'package-lock.json'), 'utf8')
+    );
 
     assert.equal(manifest.name, 'stock-eagle-eye');
     assert.equal(manifest.displayName, 'stock-eagle-eye');
     assert.equal(manifest.publisher, 'stock-eagle-eye');
-    assert.equal(manifest.version, '1.0.0');
+    assert.match(manifest.version, /^1\.\d+\.\d+$/);
+    assert.equal(lockfile.version, manifest.version);
+    assert.equal(lockfile.packages[''].version, manifest.version);
     assert.ok(fs.existsSync(path.join(projectRoot, manifest.icon)));
   });
 

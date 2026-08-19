@@ -28,7 +28,14 @@
 - 港股和股票搜索：腾讯财经
 - 股票分时与 K 线：腾讯财经，失败时自动切换东方财富
 - 基金搜索、最新公布净值和历史净值：东方财富
+- 图表组件：[TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/)
 
 基金行情显示基金公司已经公布的净值，不是盘中实时估值。数据可能因交易日、基金公告时间或上游接口延迟而滞后。
 
 本扩展仅用于行情展示，不提供投资建议。
+
+## 发布
+
+1. 同步更新 `package.json`、`package-lock.json` 和 `CHANGELOG.md` 中的版本。
+2. 提交代码后创建同版本 Tag，例如 `git tag v1.0.1`。
+3. 使用 `git push origin v1.0.1` 推送 Tag，GitHub Actions 会校验版本、运行测试、打包 VSIX 并创建 GitHub Release。
