@@ -63,6 +63,14 @@ export function getStockTrendHtml(
     .loading[hidden] { display: none; }
     .loading.error { color: #d58a8f; }
     .legend { position: absolute; top: 9px; left: 12px; z-index: 3; min-height: 18px; color: #aeb2b9; font: 11px var(--vscode-editor-font-family, Consolas, monospace); pointer-events: none; }
+    .latest-point { position: absolute; z-index: 2; display: none; width: 7px; height: 7px; border: 1px solid #0b0d10; border-radius: 50%; background: #e5e8ed; box-shadow: 0 0 0 2px rgba(229, 232, 237, .18); pointer-events: none; transform: translate(-50%, -50%); }
+    .latest-point.visible { display: block; }
+    .latest-point.visible.live { animation: latest-point-pulse 1.25s ease-out infinite; }
+    @keyframes latest-point-pulse {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 1px rgba(229, 232, 237, .42); }
+      55% { opacity: .48; box-shadow: 0 0 0 6px rgba(229, 232, 237, 0); }
+    }
+    @media (prefers-reduced-motion: reduce) { .latest-point.visible.live { animation: none; } }
     @media (max-width: 760px) {
       .quote { grid-template-columns: 1fr auto; gap: 14px; min-height: 84px; padding: 12px 14px; }
       .stats { display: none; }
@@ -103,6 +111,7 @@ export function getStockTrendHtml(
     <section class="chart-wrap">
       <div class="legend" aria-live="polite"></div>
       <div class="chart" aria-label="股票分时和 K 线图"></div>
+      <div class="latest-point" aria-hidden="true"></div>
       <div class="loading">正在加载行情...</div>
     </section>
   </main>

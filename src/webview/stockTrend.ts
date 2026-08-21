@@ -2,6 +2,7 @@ import { Disposable, ExtensionContext, Uri, ViewColumn } from 'vscode';
 import { StockTrendService } from '../explorer/stockTrendService';
 import { StockChartPeriod, StockChartRequestMessage, StockChartResponseMessage } from '../shared/stockChartProtocol';
 import { StockInfo } from '../shared/typed';
+import { isAnyStockMarketOpen } from '../shared/utils';
 import { createReusedWebviewPanel } from './ReusedWebviewPanel';
 import { getStockTrendHtml } from './stockTrendHtml';
 
@@ -27,12 +28,31 @@ export default function stockTrend(context: ExtensionContext, info: StockInfo): 
   messageListener?.dispose();
   messageListener = panel.webview.onDidReceiveMessage(async (message: StockChartRequestMessage) => {
     if (message?.type !== 'loadPeriod' || !periods.has(message.period)) return;
+    const marketOpen = isAnyStockMarketOpen([info.code]);
+    if (message.refresh && message.period === 'trend' && !marketOpen) {
+      const response: StockChartResponseMessage = {
+        type: 'chartData',
+        period: message.period,
+        requestId: message.requestId,
+        refresh: true,
+        marketOpen: false,
+      };
+      await panel.webview.postMessage(response);
+      return;
+    }
     try {
-      const data = await service.getData(info.code, message.period);
+      const data = await service.getData(
+        info.code,
+        message.period,
+        message.refresh === true
+      );
       if (currentGeneration !== generation) return;
       const response: StockChartResponseMessage = {
         type: 'chartData',
         period: message.period,
+        requestId: message.requestId,
+        refresh: message.refresh,
+        marketOpen,
         data,
       };
       await panel.webview.postMessage(response);
@@ -42,6 +62,9 @@ export default function stockTrend(context: ExtensionContext, info: StockInfo): 
       const response: StockChartResponseMessage = {
         type: 'chartError',
         period: message.period,
+        requestId: message.requestId,
+        refresh: message.refresh,
+        marketOpen,
         message: '该周期行情暂时无法加载，请稍后重试',
       };
       await panel.webview.postMessage(response);

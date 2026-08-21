@@ -20,11 +20,16 @@ export interface StockChartData {
 export interface StockChartRequestMessage {
   type: 'loadPeriod';
   period: StockChartPeriod;
+  requestId: number;
+  refresh?: boolean;
 }
 
 export interface StockChartResponseMessage {
   type: 'chartData' | 'chartError';
   period: StockChartPeriod;
+  requestId: number;
+  refresh?: boolean;
+  marketOpen?: boolean;
   data?: StockChartData;
   message?: string;
 }

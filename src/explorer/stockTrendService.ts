@@ -100,10 +100,14 @@ const klinePeriods: Record<Exclude<StockChartPeriod, 'trend'>, number> = {
 export class StockTrendService {
   private readonly cache = new Map<string, CacheEntry>();
 
-  async getData(code: string, period: StockChartPeriod): Promise<StockChartData> {
+  async getData(
+    code: string,
+    period: StockChartPeriod,
+    forceRefresh = false
+  ): Promise<StockChartData> {
     const key = `${code.toLowerCase()}:${period}`;
     const cached = this.cache.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.data;
+    if (!forceRefresh && cached && cached.expiresAt > Date.now()) return cached.data;
 
     let data: StockChartData;
     try {

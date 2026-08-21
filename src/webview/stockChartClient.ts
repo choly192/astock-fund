@@ -53,6 +53,9 @@ const vscode =
                   data: {
                     type: 'chartData',
                     period: message.period,
+                    requestId: message.requestId,
+                    refresh: message.refresh,
+                    marketOpen: true,
                     data: createPreviewData(message.period),
                   },
                 })
@@ -64,7 +67,14 @@ const vscode =
 const container = document.querySelector<HTMLElement>('.chart')!;
 const loading = document.querySelector<HTMLElement>('.loading')!;
 const legend = document.querySelector<HTMLElement>('.legend')!;
+const latestPoint = document.querySelector<HTMLElement>('.latest-point')!;
+const headline = document.querySelector<HTMLElement>('.headline')!;
+const priceElement = document.querySelector<HTMLElement>('.price')!;
+const percentElement = document.querySelector<HTMLElement>('.percent')!;
 const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.period-tab'));
+
+const TREND_POLL_INTERVAL_MS = 5000;
+const REQUEST_TIMEOUT_MS = 15000;
 
 const chart = createChart(container, {
   autoSize: true,
@@ -98,6 +108,14 @@ let currentPeriod: StockChartPeriod = 'trend';
 let mainSeries: any;
 let averageSeries: any;
 let volumeSeries: any;
+let renderedPeriod: StockChartPeriod | undefined;
+let renderedKind: StockChartData['kind'] | undefined;
+let latestValue: { time: Time; price: number } | undefined;
+let trendPollTimer: number | undefined;
+let nextRequestId = 0;
+let activeRequestId = 0;
+let requestPending = false;
+let requestStartedAt = 0;
 
 function clearSeries(): void {
   [mainSeries, averageSeries, volumeSeries].filter(Boolean).forEach((series) => {
@@ -106,6 +124,10 @@ function clearSeries(): void {
   mainSeries = undefined;
   averageSeries = undefined;
   volumeSeries = undefined;
+  renderedPeriod = undefined;
+  renderedKind = undefined;
+  latestValue = undefined;
+  latestPoint.classList.remove('visible', 'live');
   legend.textContent = '';
 }
 
@@ -115,17 +137,52 @@ function setLoading(message: string, error = false): void {
   loading.hidden = false;
 }
 
-function render(data: StockChartData): void {
-  clearSeries();
+function updateLatestPointPosition(): void {
+  if (currentPeriod !== 'trend' || !latestValue || !mainSeries || document.hidden) {
+    latestPoint.classList.remove('visible');
+    return;
+  }
+  const x = chart.timeScale().timeToCoordinate(latestValue.time);
+  const y = mainSeries.priceToCoordinate(latestValue.price);
+  if (x === null || y === null || x < 0 || y < 0 || x > container.clientWidth || y > container.clientHeight) {
+    latestPoint.classList.remove('visible');
+    return;
+  }
+  latestPoint.style.left = `${x}px`;
+  latestPoint.style.top = `${y}px`;
+  latestPoint.classList.add('visible');
+}
+
+function updateHeadline(data: StockChartData): void {
+  if (data.period !== 'trend' || !data.points.length) return;
+  const last = data.points[data.points.length - 1];
+  priceElement.textContent = last.close.toFixed(2);
+  if (!data.previousClose) return;
+  const change = last.close - data.previousClose;
+  const percent = change / data.previousClose * 100;
+  percentElement.textContent = `${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%`;
+  headline.classList.toggle('rise', change > 0);
+  headline.classList.toggle('fall', change < 0);
+}
+
+function render(data: StockChartData, marketOpen = true): void {
+  const rebuild = !mainSeries || renderedPeriod !== data.period || renderedKind !== data.kind;
+  if (rebuild) {
+    clearSeries();
+    renderedPeriod = data.period;
+    renderedKind = data.kind;
+  }
   const upColor = '#ee4b5a';
   const downColor = '#16a36d';
   if (data.kind === 'line') {
-    mainSeries = chart.addLineSeries({
-      color: '#9f9f9f',
-      lineWidth: 2,
-      priceLineVisible: false,
-      lastValueVisible: true,
-    });
+    if (!mainSeries) {
+      mainSeries = chart.addLineSeries({
+        color: '#9f9f9f',
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: true,
+      });
+    }
     mainSeries.setData(
       data.points.map((point) => ({
         time: point.time as Time,
@@ -134,20 +191,24 @@ function render(data: StockChartData): void {
     );
     const averagePoints = data.points.filter((point) => point.average !== undefined);
     if (averagePoints.length) {
-      averageSeries = chart.addLineSeries({
-        color: '#c7b448',
-        lineWidth: 1,
-        priceLineVisible: false,
-        lastValueVisible: false,
-      });
+      if (!averageSeries) {
+        averageSeries = chart.addLineSeries({
+          color: '#c7b448',
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+      }
       averageSeries.setData(
         averagePoints.map((point) => ({
           time: point.time as Time,
           value: point.average!,
         }))
       );
+    } else if (averageSeries) {
+      averageSeries.setData([]);
     }
-    if (data.previousClose) {
+    if (rebuild && data.previousClose) {
       mainSeries.createPriceLine({
         price: data.previousClose,
         color: '#555a63',
@@ -158,15 +219,17 @@ function render(data: StockChartData): void {
       });
     }
   } else {
-    mainSeries = chart.addCandlestickSeries({
-      upColor,
-      downColor,
-      borderUpColor: upColor,
-      borderDownColor: downColor,
-      wickUpColor: upColor,
-      wickDownColor: downColor,
-      priceLineVisible: false,
-    });
+    if (!mainSeries) {
+      mainSeries = chart.addCandlestickSeries({
+        upColor,
+        downColor,
+        borderUpColor: upColor,
+        borderDownColor: downColor,
+        wickUpColor: upColor,
+        wickDownColor: downColor,
+        priceLineVisible: false,
+      });
+    }
     mainSeries.setData(
       data.points.map((point) => ({
         time: point.time as Time,
@@ -178,32 +241,65 @@ function render(data: StockChartData): void {
     );
   }
 
-  volumeSeries = chart.addHistogramSeries({
-    priceFormat: { type: 'volume' },
-    priceScaleId: 'volume',
-    priceLineVisible: false,
-    lastValueVisible: false,
-  });
-  volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+  if (!volumeSeries) {
+    volumeSeries = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      priceScaleId: 'volume',
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
+    volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+  }
   const volumes: HistogramData[] = data.points.map((point) => ({
     time: point.time as Time,
     value: point.volume,
     color: point.close >= point.open ? 'rgba(238, 75, 90, .48)' : 'rgba(22, 163, 109, .48)',
   }));
   volumeSeries.setData(volumes);
-  chart.timeScale().fitContent();
+  if (rebuild) chart.timeScale().fitContent();
+  updateHeadline(data);
+  const last = data.points[data.points.length - 1];
+  latestValue = data.period === 'trend' && last
+    ? { time: last.time as Time, price: last.close }
+    : undefined;
+  latestPoint.classList.toggle('live', Boolean(latestValue && marketOpen));
+  window.requestAnimationFrame(updateLatestPointPosition);
   loading.hidden = true;
 }
 
-function requestPeriod(period: StockChartPeriod): void {
-  currentPeriod = period;
-  tabs.forEach((tab) => {
-    const selected = tab.dataset.period === period;
-    tab.classList.toggle('active', selected);
-    tab.setAttribute('aria-selected', String(selected));
-  });
-  setLoading('正在加载行情...');
-  vscode.postMessage({ type: 'loadPeriod', period });
+function stopTrendPolling(): void {
+  if (trendPollTimer !== undefined) window.clearInterval(trendPollTimer);
+  trendPollTimer = undefined;
+}
+
+function startTrendPolling(): void {
+  if (trendPollTimer !== undefined || currentPeriod !== 'trend' || document.hidden) return;
+  trendPollTimer = window.setInterval(() => requestPeriod('trend', true), TREND_POLL_INTERVAL_MS);
+}
+
+function requestPeriod(period: StockChartPeriod, refresh = false): void {
+  if (refresh) {
+    if (period !== 'trend' || currentPeriod !== 'trend' || document.hidden) return;
+    if (requestPending && Date.now() - requestStartedAt < REQUEST_TIMEOUT_MS) return;
+  } else {
+    currentPeriod = period;
+    tabs.forEach((tab) => {
+      const selected = tab.dataset.period === period;
+      tab.classList.toggle('active', selected);
+      tab.setAttribute('aria-selected', String(selected));
+    });
+    latestPoint.classList.remove('visible');
+    setLoading('正在加载行情...');
+  }
+
+  if (period === 'trend') startTrendPolling();
+  else stopTrendPolling();
+
+  const requestId = ++nextRequestId;
+  activeRequestId = requestId;
+  requestPending = true;
+  requestStartedAt = Date.now();
+  vscode.postMessage({ type: 'loadPeriod', period, requestId, refresh });
 }
 
 tabs.forEach((tab) =>
@@ -214,13 +310,36 @@ tabs.forEach((tab) =>
 
 window.addEventListener('message', (event: MessageEvent<StockChartResponseMessage>) => {
   const message = event.data;
-  if (!message || message.period !== currentPeriod) return;
+  if (!message || message.requestId !== activeRequestId || message.period !== currentPeriod) return;
+  requestPending = false;
+  if (message.refresh && message.marketOpen === false && !message.data) {
+    latestPoint.classList.remove('live');
+    return;
+  }
   if (message.type === 'chartError' || !message.data) {
+    if (message.refresh && mainSeries) return;
     setLoading(message.message || '行情数据加载失败', true);
     return;
   }
-  render(message.data);
+  render(message.data, message.marketOpen !== false);
 });
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    stopTrendPolling();
+    latestPoint.classList.remove('visible');
+    return;
+  }
+  if (currentPeriod === 'trend') {
+    requestPeriod('trend', true);
+    startTrendPolling();
+  }
+  updateLatestPointPosition();
+});
+
+chart.timeScale().subscribeVisibleLogicalRangeChange(() => updateLatestPointPosition());
+window.addEventListener('resize', () => window.requestAnimationFrame(updateLatestPointPosition));
+window.addEventListener('pagehide', stopTrendPolling);
 
 chart.subscribeCrosshairMove((param) => {
   if (!param.time || !mainSeries) {

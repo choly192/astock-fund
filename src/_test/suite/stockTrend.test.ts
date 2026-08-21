@@ -38,12 +38,17 @@ suite('Stock trend webview', () => {
     assert.ok(!html.includes('image.sinajs.cn'));
     assert.ok(!html.includes('旧数据'));
     assert.ok(!html.includes('<dt>获取</dt>'));
+    assert.ok(html.includes('class="latest-point"'));
+    assert.ok(html.includes('@keyframes latest-point-pulse'));
 
     const chartClient = fs.readFileSync(
       path.join(projectRoot, 'src', 'webview', 'stockChartClient.ts'),
       'utf8'
     );
     assert.ok(chartClient.includes('attributionLogo: false'));
+    assert.ok(chartClient.includes('TREND_POLL_INTERVAL_MS = 5000'));
+    assert.ok(chartClient.includes("document.addEventListener('visibilitychange'"));
+    assert.ok(chartClient.includes("requestPeriod('trend', true)"));
   });
 
   test('escapes quote text before placing it in HTML', () => {

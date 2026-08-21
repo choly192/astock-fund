@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import {
   parseEastMoneyKlineResponse,
   parseEastMoneyTrendResponse,
+  StockTrendService,
 } from '../../explorer/stockTrendService';
 
 suite('Stock trend data parsing', () => {
@@ -41,5 +42,33 @@ suite('Stock trend data parsing', () => {
       average: 10.12,
     });
     assert.equal(result.points[0].time, Date.UTC(2026, 7, 18, 9, 31) / 1000);
+  });
+
+  test('bypasses the short-lived cache for live trend refreshes', async () => {
+    const service = new StockTrendService();
+    let requestCount = 0;
+    (service as any).getTencentTrend = async () => {
+      requestCount += 1;
+      return {
+        period: 'trend',
+        kind: 'line',
+        points: [{
+          time: 1,
+          open: 10,
+          high: 10,
+          low: 10,
+          close: 10 + requestCount,
+          volume: 100,
+        }],
+      };
+    };
+
+    const first = await service.getData('sh000001', 'trend');
+    const cached = await service.getData('sh000001', 'trend');
+    const refreshed = await service.getData('sh000001', 'trend', true);
+
+    assert.equal(requestCount, 2);
+    assert.equal(cached.points[0].close, first.points[0].close);
+    assert.notEqual(refreshed.points[0].close, first.points[0].close);
   });
 });
