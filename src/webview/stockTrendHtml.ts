@@ -62,7 +62,8 @@ export function getStockTrendHtml(
     .loading { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; color: #777d87; background: #0b0d10; font-size: 12px; }
     .loading[hidden] { display: none; }
     .loading.error { color: #d58a8f; }
-    .legend { position: absolute; top: 9px; left: 12px; z-index: 3; min-height: 18px; color: #aeb2b9; font: 11px var(--vscode-editor-font-family, Consolas, monospace); pointer-events: none; }
+    .legend { position: absolute; top: 9px; right: 12px; left: 12px; z-index: 3; min-height: 18px; color: #aeb2b9; font: 11px/18px var(--vscode-editor-font-family, Consolas, monospace); pointer-events: none; }
+    .ma-legend { position: absolute; top: 27px; right: 12px; left: 12px; z-index: 3; display: flex; flex-wrap: wrap; gap: 4px 14px; min-height: 18px; font: 11px/18px var(--vscode-editor-font-family, Consolas, monospace); pointer-events: none; }
     .latest-point { position: absolute; z-index: 2; display: none; width: 7px; height: 7px; border: 1px solid #0b0d10; border-radius: 50%; background: #e5e8ed; box-shadow: 0 0 0 2px rgba(229, 232, 237, .18); pointer-events: none; transform: translate(-50%, -50%); }
     .latest-point.visible { display: block; }
     .latest-point.visible.live { animation: latest-point-pulse 1.25s ease-out infinite; }
@@ -110,6 +111,7 @@ export function getStockTrendHtml(
     </nav>
     <section class="chart-wrap">
       <div class="legend" aria-live="polite"></div>
+      <div class="ma-legend" aria-label="移动平均线"></div>
       <div class="chart" aria-label="股票分时和 K 线图"></div>
       <div class="latest-point" aria-hidden="true"></div>
       <div class="loading">正在加载行情...</div>

@@ -2,7 +2,7 @@
   "name": "stock-eagle-eye",
   "displayName": "stock-eagle-eye",
   "description": "在 VS Code 中查看股票和基金基础行情，并管理自定义分组。",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",

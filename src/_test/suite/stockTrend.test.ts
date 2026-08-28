@@ -1,6 +1,7 @@
 import * as assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
+import { calculateMovingAverage } from '../../webview/movingAverage';
 import { getEastMoneyStockTarget, getStockTrendHtml } from '../../webview/stockTrendHtml';
 
 const projectRoot = path.resolve(__dirname, '../../..');
@@ -42,6 +43,7 @@ suite('Stock trend webview', () => {
     assert.ok(html.includes('@keyframes latest-point-pulse'));
     assert.ok(html.includes('data-stat="volume"'));
     assert.ok(html.includes('class="quote-time"'));
+    assert.ok(html.includes('class="ma-legend"'));
 
     const chartClient = fs.readFileSync(
       path.join(projectRoot, 'src', 'webview', 'stockChartClient.ts'),
@@ -53,6 +55,22 @@ suite('Stock trend webview', () => {
     assert.ok(chartClient.includes("document.addEventListener('visibilitychange'"));
     assert.ok(chartClient.includes('requestPeriod(currentPeriod, true)'));
     assert.ok(chartClient.includes('均价'));
+    assert.ok(chartClient.includes("label: 'MA60'"));
+    assert.ok(chartClient.includes('calculateMovingAverage'));
+  });
+
+  test('calculates moving averages from closing prices', () => {
+    const points = [10, 11, 12, 13, 14].map((close, index) => ({
+      time: `2026-08-${String(index + 1).padStart(2, '0')}`,
+      close,
+    }));
+    assert.deepStrictEqual(calculateMovingAverage(points, 3), [
+      { time: '2026-08-03', value: 11 },
+      { time: '2026-08-04', value: 12 },
+      { time: '2026-08-05', value: 13 },
+    ]);
+    assert.deepStrictEqual(calculateMovingAverage(points, 10), []);
+    assert.throws(() => calculateMovingAverage(points, 0), /正整数/);
   });
 
   test('escapes quote text before placing it in HTML', () => {

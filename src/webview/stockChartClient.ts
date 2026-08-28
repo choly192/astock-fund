@@ -12,6 +12,7 @@ import {
   StockChartRequestMessage,
   StockChartResponseMessage,
 } from '../shared/stockChartProtocol';
+import { calculateMovingAverage } from './movingAverage';
 
 declare function acquireVsCodeApi(): { postMessage(message: StockChartRequestMessage): void };
 
@@ -67,6 +68,7 @@ const vscode =
 const container = document.querySelector<HTMLElement>('.chart')!;
 const loading = document.querySelector<HTMLElement>('.loading')!;
 const legend = document.querySelector<HTMLElement>('.legend')!;
+const movingAverageLegend = document.querySelector<HTMLElement>('.ma-legend')!;
 const latestPoint = document.querySelector<HTMLElement>('.latest-point')!;
 const headline = document.querySelector<HTMLElement>('.headline')!;
 const priceElement = document.querySelector<HTMLElement>('.price')!;
@@ -84,6 +86,12 @@ const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.period-ta
 const TREND_POLL_INTERVAL_MS = 5000;
 const MINUTE_POLL_INTERVAL_MS = 15000;
 const REQUEST_TIMEOUT_MS = 15000;
+const MOVING_AVERAGES = [
+  { period: 5, label: 'MA5', color: '#f3f4f6' },
+  { period: 10, label: 'MA10', color: '#f0c94d' },
+  { period: 20, label: 'MA20', color: '#d982d9' },
+  { period: 60, label: 'MA60', color: '#52a8e8' },
+] as const;
 const isRealtimePeriod = (period: StockChartPeriod) =>
   period === 'trend' || period.endsWith('m');
 
@@ -118,6 +126,8 @@ const chart = createChart(container, {
 let currentPeriod: StockChartPeriod = 'trend';
 let mainSeries: any;
 let averageSeries: any;
+const movingAverageSeries = new Map<number, any>();
+const latestMovingAverageValues = new Map<number, number>();
 let volumeSeries: any;
 let renderedPeriod: StockChartPeriod | undefined;
 let renderedKind: StockChartData['kind'] | undefined;
@@ -129,17 +139,33 @@ let requestPending = false;
 let requestStartedAt = 0;
 
 function clearSeries(): void {
-  [mainSeries, averageSeries, volumeSeries].filter(Boolean).forEach((series) => {
-    chart.removeSeries(series);
-  });
+  [mainSeries, averageSeries, volumeSeries, ...movingAverageSeries.values()]
+    .filter(Boolean).forEach((series) => {
+      chart.removeSeries(series);
+    });
   mainSeries = undefined;
   averageSeries = undefined;
+  movingAverageSeries.clear();
+  latestMovingAverageValues.clear();
   volumeSeries = undefined;
   renderedPeriod = undefined;
   renderedKind = undefined;
   latestValue = undefined;
   latestPoint.classList.remove('visible', 'live');
   legend.textContent = '';
+  movingAverageLegend.replaceChildren();
+}
+
+function renderMovingAverageLegend(values: ReadonlyMap<number, number>): void {
+  const items = MOVING_AVERAGES.flatMap((definition) => {
+    const value = values.get(definition.period);
+    if (value === undefined) return [];
+    const item = document.createElement('span');
+    item.style.color = definition.color;
+    item.textContent = `${definition.label} ${value.toFixed(2)}`;
+    return [item];
+  });
+  movingAverageLegend.replaceChildren(...items);
 }
 
 function setLoading(message: string, error = false): void {
@@ -274,6 +300,28 @@ function render(data: StockChartData, marketOpen = true): void {
         close: point.close,
       }))
     );
+    latestMovingAverageValues.clear();
+    MOVING_AVERAGES.forEach((definition) => {
+      const points = calculateMovingAverage(data.points, definition.period);
+      let series = movingAverageSeries.get(definition.period);
+      if (!series) {
+        series = chart.addLineSeries({
+          color: definition.color,
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        movingAverageSeries.set(definition.period, series);
+      }
+      series.setData(points.map((point) => ({
+        time: point.time as Time,
+        value: point.value,
+      })));
+      const latest = points[points.length - 1];
+      if (latest) latestMovingAverageValues.set(definition.period, latest.value);
+    });
+    renderMovingAverageLegend(latestMovingAverageValues);
   }
 
   if (!volumeSeries) {
@@ -384,6 +432,7 @@ window.addEventListener('pagehide', stopRealtimePolling);
 chart.subscribeCrosshairMove((param) => {
   if (!param.time || !mainSeries) {
     legend.textContent = '';
+    renderMovingAverageLegend(latestMovingAverageValues);
     return;
   }
   const value: any = param.seriesData.get(mainSeries);
@@ -393,6 +442,13 @@ chart.subscribeCrosshairMove((param) => {
   const time = formatChartTime(param.time as Time);
   const volumeText = volume?.value === undefined ? '' : `  量 ${formatCompactVolume(volume.value)}`;
   if ('open' in value) {
+    const movingAverageValues = new Map<number, number>();
+    MOVING_AVERAGES.forEach((definition) => {
+      const series = movingAverageSeries.get(definition.period);
+      const point: any = series ? param.seriesData.get(series) : undefined;
+      if (point?.value !== undefined) movingAverageValues.set(definition.period, point.value);
+    });
+    renderMovingAverageLegend(movingAverageValues);
     legend.textContent = `${time}  开 ${value.open.toFixed(2)}  高 ${value.high.toFixed(
       2
     )}  低 ${value.low.toFixed(2)}  收 ${value.close.toFixed(2)}${volumeText}`;
