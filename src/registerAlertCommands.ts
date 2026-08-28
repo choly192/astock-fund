@@ -59,12 +59,30 @@ export function registerAlertCommands(
       );
       if (!selected) return;
       const action = await window.showQuickPick([
+        { label: '修改提醒阈值', action: 'edit' },
         { label: selected.rule.enabled ? '暂停提醒' : '启用提醒', action: 'toggle' },
         { label: '删除提醒', action: 'delete' },
       ], { placeHolder: selected.description });
       if (!action) return;
-      if (action.action === 'toggle') await manager.toggle(selected.rule.id);
-      else await manager.remove(selected.rule.id);
+      if (action.action === 'edit') {
+        const percent = selected.rule.condition.startsWith('percent');
+        const input = await window.showInputBox({
+          prompt: percent ? '输入新的目标涨跌幅（%）' : '输入新的目标价格',
+          value: String(selected.rule.value),
+          validateInput: (value) => {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric)) return '请输入有效数字';
+            if (!percent && numeric <= 0) return '价格必须大于 0';
+            return undefined;
+          },
+        });
+        if (input === undefined) return;
+        await manager.updateValue(selected.rule.id, Number(input));
+      } else if (action.action === 'toggle') {
+        await manager.toggle(selected.rule.id);
+      } else {
+        await manager.remove(selected.rule.id);
+      }
       window.setStatusBarMessage('股票提醒已更新', 2000);
     })
   );

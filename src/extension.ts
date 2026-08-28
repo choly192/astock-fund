@@ -13,7 +13,7 @@ import { FundTreeItem } from './shared/fundTreeItem';
 import { StockEagleEyeConfig } from './shared/stockEagleEyeConfig';
 import { StockTreeItem } from './shared/stockTreeItem';
 import { RefreshQueue } from './shared/refreshQueue';
-import { isAnyStockMarketOpen } from './shared/utils';
+import { getOpenStockCodes } from './shared/utils';
 import { StatusBar } from './statusbar/statusBar';
 
 let pollTimer: NodeJS.Timeout | undefined;
@@ -30,20 +30,30 @@ export async function activate(context: ExtensionContext): Promise<void> {
   statusBar = new StatusBar(service);
   context.subscriptions.push(statusBar, alertManager);
 
+  let fullStockRefreshRequested = false;
   const stockRefreshQueue = new RefreshQueue(async () => {
-    await service.getData(StockEagleEyeConfig.getAllStockCodes());
+    const allCodes = StockEagleEyeConfig.getAllStockCodes();
+    const refreshAllMarkets = fullStockRefreshRequested;
+    fullStockRefreshRequested = false;
+    const codes = refreshAllMarkets ? allCodes : getOpenStockCodes(allCodes);
+    if (!codes.length) return;
+    await service.getData(codes, !refreshAllMarkets);
     provider.refresh();
   });
-  const refreshAll = () => stockRefreshQueue.run();
+  const refreshAll = () => {
+    fullStockRefreshRequested = true;
+    return stockRefreshQueue.run();
+  };
+  const refreshOpenMarkets = () => stockRefreshQueue.run();
 
   const fundRefreshQueue = new RefreshQueue(async () => {
     await fundService.getData(FundConfig.getAllFundCodes());
     fundProvider.refresh();
   });
   const refreshFunds = () => fundRefreshQueue.run();
-  registerCommands(context, service, provider, statusBar, refreshAll);
+  registerCommands(context, service, provider, statusBar, alertManager, refreshAll);
   registerFundCommands(context, fundService, fundProvider, refreshFunds);
-  registerPortfolioCommands(context, refreshAll, refreshFunds);
+  registerPortfolioCommands(context, refreshAll, refreshFunds, alertManager);
   registerAlertCommands(context, alertManager);
 
   try {
@@ -51,6 +61,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
       StockEagleEyeConfig.migrateStockGroups(),
       FundConfig.migrateFundGroups(),
     ]);
+    await alertManager.removeMissingCodes(StockEagleEyeConfig.getAllStockCodes());
   } catch (error) {
     console.error('Configuration migration failed', error);
     window.showWarningMessage('部分旧配置迁移失败，扩展将继续使用当前配置');
@@ -82,8 +93,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
     const configured = StockEagleEyeConfig.getConfig<number>('stock-eagle-eye.interval', 5000);
     const interval = Math.max(3000, configured || 5000);
     pollTimer = setInterval(() => {
-      const codes = StockEagleEyeConfig.getAllStockCodes();
-      if (isAnyStockMarketOpen(codes)) void refreshAll();
+      void refreshOpenMarkets();
     }, interval);
   };
 

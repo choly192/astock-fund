@@ -1,4 +1,5 @@
 import { commands, ExtensionContext, window, workspace } from 'vscode';
+import { StockAlertManager } from './alerts/stockAlertManager';
 import { FundConfig } from './shared/fundConfig';
 import { createPortfolioFile, parsePortfolioFile } from './shared/portfolioConfig';
 import { StockEagleEyeConfig } from './shared/stockEagleEyeConfig';
@@ -8,7 +9,8 @@ type Refresh = () => Promise<void>;
 export function registerPortfolioCommands(
   context: ExtensionContext,
   refreshStocks: Refresh,
-  refreshFunds: Refresh
+  refreshFunds: Refresh,
+  alertManager: StockAlertManager
 ): void {
   context.subscriptions.push(
     commands.registerCommand('stock-eagle-eye.exportGroups', async () => {
@@ -40,6 +42,7 @@ export function registerPortfolioCommands(
         if (answer !== '继续导入') return;
         await StockEagleEyeConfig.saveStockGroupConfig(config.stocks);
         await FundConfig.saveFundGroupConfig(config.funds);
+        await alertManager.removeMissingCodes(StockEagleEyeConfig.getAllStockCodes());
         await Promise.all([refreshStocks(), refreshFunds()]);
         window.showInformationMessage('股票和基金分组配置已导入');
       } catch (error) {

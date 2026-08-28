@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { mapSettledWithConcurrency } from '../../shared/async';
+import { chunkValues, mapSettledWithConcurrency } from '../../shared/async';
 
 suite('Async concurrency', () => {
   test('limits concurrency and preserves result order', async () => {
@@ -19,5 +19,10 @@ suite('Async concurrency', () => {
       'fulfilled', 'fulfilled', 'rejected', 'fulfilled', 'fulfilled',
     ]);
     assert.equal(results[4].status === 'fulfilled' ? results[4].value : 0, 10);
+  });
+
+  test('splits values into stable request batches', () => {
+    assert.deepStrictEqual(chunkValues([1, 2, 3, 4, 5], 2), [[1, 2], [3, 4], [5]]);
+    assert.deepStrictEqual(chunkValues([1, 2], 0), [[1], [2]]);
   });
 });

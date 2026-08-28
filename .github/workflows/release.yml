@@ -24,6 +24,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run test:unit
+      - run: xvfb-run -a npm test
       - name: Validate release metadata
         run: node scripts/extract-release-notes.js "$GITHUB_REF_NAME" "$RUNNER_TEMP/release-notes.md"
       - name: Package extension

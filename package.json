@@ -2,11 +2,15 @@
   "name": "stock-eagle-eye",
   "displayName": "stock-eagle-eye",
   "description": "在 VS Code 中查看股票和基金基础行情，并管理自定义分组。",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
     "url": "https://github.com/choly192/astock-fund.git"
+  },
+  "homepage": "https://github.com/choly192/astock-fund#readme",
+  "bugs": {
+    "url": "https://github.com/choly192/astock-fund/issues"
   },
   "keywords": [
     "stock",

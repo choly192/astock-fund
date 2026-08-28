@@ -1,4 +1,5 @@
 import { commands, ExtensionContext, QuickPickItem, window } from 'vscode';
+import { StockAlertManager } from './alerts/stockAlertManager';
 import { StockProvider } from './explorer/stockProvider';
 import StockService from './explorer/stockService';
 import {
@@ -89,6 +90,7 @@ export function registerCommands(
   service: StockService,
   provider: StockProvider,
   statusBar: StatusBar,
+  alertManager: StockAlertManager,
   refreshAll: RefreshAll
 ): void {
   context.subscriptions.push(
@@ -155,9 +157,13 @@ export function registerCommands(
       );
       await refreshAll();
       const undo = await window.showInformationMessage(`已删除股票分组“${config.names[groupIndex]}”`, '撤销');
-      if (undo !== '撤销') return;
+      if (undo !== '撤销') {
+        await alertManager.removeMissingCodes(remainingCodes);
+        return;
+      }
       if (JSON.stringify(StockEagleEyeConfig.getStockGroupConfig()) !== JSON.stringify(removed)) {
         window.showWarningMessage('分组已发生其他更改，无法撤销本次删除');
+        await alertManager.removeMissingCodes(StockEagleEyeConfig.getAllStockCodes());
         return;
       }
       await StockEagleEyeConfig.saveStockGroupConfig(config);
@@ -201,6 +207,7 @@ export function registerCommands(
       if (groupIndex === undefined) return;
       await StockEagleEyeConfig.removeStock(groupIndex, target.info.code);
       const remainingCodes = StockEagleEyeConfig.getAllStockCodes();
+      await alertManager.removeMissingCodes(remainingCodes);
       const statusCodes = StockEagleEyeConfig.getConfig<string[]>('stock-eagle-eye.statusBarStock', []);
       await StockEagleEyeConfig.updateStatusBarStocks(
         statusCodes.filter((code) => remainingCodes.includes(code))

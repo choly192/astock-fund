@@ -1,4 +1,5 @@
 import { ExtensionContext, QuickPickItem, window } from 'vscode';
+import { chunkValues, mapSettledWithConcurrency } from '../shared/async';
 import { getWithRetry, isCanceledRequest } from '../shared/httpClient';
 import { StockTreeItem } from '../shared/stockTreeItem';
 import { StockInfo } from '../shared/typed';
@@ -18,6 +19,8 @@ import {
 } from '../shared/tencentStock';
 
 type RawStockInfo = Omit<StockInfo, 'percent' | 'updown'>;
+const STOCK_REQUEST_BATCH_SIZE = 80;
+const STOCK_REQUEST_CONCURRENCY = 2;
 
 export default class StockService {
   public stockList: StockTreeItem[] = [];
@@ -30,14 +33,15 @@ export default class StockService {
     );
   }
 
-  async getData(codes: string[]): Promise<StockTreeItem[]> {
+  async getData(codes: string[], preserveExisting = false): Promise<StockTreeItem[]> {
     const supportedCodes = uniqueCodes(codes).filter((code) =>
       /^(sh|sz|bj|hk|usr_|gb_)/i.test(code)
     );
-    if (!supportedCodes.length) {
+    if (!supportedCodes.length && !preserveExisting) {
       this.updateList([]);
       return [];
     }
+    if (!supportedCodes.length) return this.stockList;
 
     const hkCodes = supportedCodes.filter((code) => /^hk/i.test(code));
     const sinaCodes = supportedCodes.filter((code) => !/^hk/i.test(code));
@@ -64,6 +68,13 @@ export default class StockService {
           : this.createNoDataItem(code)
       );
     });
+
+    if (preserveExisting) {
+      const refreshedCodes = new Set(supportedCodes.map((code) => code.toLowerCase()));
+      items.push(...this.stockList.filter(
+        (item) => !refreshedCodes.has(item.info.code.toLowerCase())
+      ));
+    }
 
     this.updateList(items);
     return items;
@@ -125,6 +136,15 @@ export default class StockService {
   }
 
   private async getSinaStockData(codes: string[]): Promise<StockTreeItem[]> {
+    const settled = await mapSettledWithConcurrency(
+      chunkValues(codes, STOCK_REQUEST_BATCH_SIZE),
+      STOCK_REQUEST_CONCURRENCY,
+      (batch) => this.getSinaStockBatch(batch)
+    );
+    return settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  }
+
+  private async getSinaStockBatch(codes: string[]): Promise<StockTreeItem[]> {
     if (!codes.length) return [];
     const requestCodes = codes.map((code) => code.replace('.', '$'));
     const url = `https://hq.sinajs.cn/list=${requestCodes.join(',')}`;
@@ -276,6 +296,15 @@ export default class StockService {
   }
 
   private async getHKStockData(codes: string[]): Promise<StockTreeItem[]> {
+    const settled = await mapSettledWithConcurrency(
+      chunkValues(codes, STOCK_REQUEST_BATCH_SIZE),
+      STOCK_REQUEST_CONCURRENCY,
+      (batch) => this.getHKStockBatch(batch)
+    );
+    return settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
+  }
+
+  private async getHKStockBatch(codes: string[]): Promise<StockTreeItem[]> {
     if (!codes.length) return [];
     try {
       const stocks = await getTencentHKStockData(codes);

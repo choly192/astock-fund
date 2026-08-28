@@ -113,45 +113,29 @@ function isInSession(value: ZonedClock, sessions: Array<[number, number]>): bool
   return sessions.some(([start, end]) => isBetweenMinutes(value, start, end));
 }
 
+export function getOpenStockCodes(codes: string[], now = new Date()): string[] {
+  const shanghai = getZonedClock(now, 'Asia/Shanghai');
+  const newYork = getZonedClock(now, 'America/New_York');
+  const mainlandOpen = isWeekday(shanghai) && isInSession(shanghai, [
+    [9 * 60 + 15, 11 * 60 + 30],
+    [13 * 60, 15 * 60 + 10],
+  ]);
+  const hongKongOpen = isWeekday(shanghai) && isInSession(shanghai, [
+    [9 * 60, 12 * 60],
+    [13 * 60, 16 * 60 + 15],
+  ]);
+  const usOpen = isWeekday(newYork) && isBetweenMinutes(newYork, 4 * 60, 20 * 60);
+
+  return uniqueCodes(codes).filter((code) => {
+    if (/^(sh|sz|bj)/i.test(code)) return mainlandOpen;
+    if (/^hk/i.test(code)) return hongKongOpen;
+    if (/^(usr_|gb_)/i.test(code)) return usOpen;
+    return false;
+  });
+}
+
 export function isAnyStockMarketOpen(codes: string[], now = new Date()): boolean {
-  if (!codes.length) return false;
-
-  const hasMainlandMarket = codes.some((code) => /^(sh|sz|bj)/i.test(code));
-  const hasHongKongMarket = codes.some((code) => /^hk/i.test(code));
-  const hasUsMarket = codes.some((code) => /^(usr_|gb_)/i.test(code));
-
-  if (hasMainlandMarket || hasHongKongMarket) {
-    const shanghai = getZonedClock(now, 'Asia/Shanghai');
-    if (
-      hasMainlandMarket &&
-      isWeekday(shanghai) &&
-      isInSession(shanghai, [
-        [9 * 60 + 15, 11 * 60 + 30],
-        [13 * 60, 15 * 60 + 10],
-      ])
-    ) {
-      return true;
-    }
-    if (
-      hasHongKongMarket &&
-      isWeekday(shanghai) &&
-      isInSession(shanghai, [
-        [9 * 60, 12 * 60],
-        [13 * 60, 16 * 60 + 15],
-      ])
-    ) {
-      return true;
-    }
-  }
-
-  if (hasUsMarket) {
-    const newYork = getZonedClock(now, 'America/New_York');
-    if (isWeekday(newYork) && isBetweenMinutes(newYork, 4 * 60, 20 * 60)) {
-      return true;
-    }
-  }
-
-  return false;
+  return getOpenStockCodes(codes, now).length > 0;
 }
 
 export function escapeHtml(value: string): string {

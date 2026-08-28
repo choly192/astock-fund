@@ -10,6 +10,8 @@ const service = new StockTrendService();
 const periods = new Set<StockChartPeriod>([
   'trend', 'day', 'week', 'month', '5m', '15m', '30m', '60m',
 ]);
+const isRealtimePeriod = (period: StockChartPeriod) =>
+  period === 'trend' || period.endsWith('m');
 let messageListener: Disposable | undefined;
 let generation = 0;
 
@@ -29,7 +31,7 @@ export default function stockTrend(context: ExtensionContext, info: StockInfo): 
   messageListener = panel.webview.onDidReceiveMessage(async (message: StockChartRequestMessage) => {
     if (message?.type !== 'loadPeriod' || !periods.has(message.period)) return;
     const marketOpen = isAnyStockMarketOpen([info.code]);
-    if (message.refresh && message.period === 'trend' && !marketOpen) {
+    if (message.refresh && isRealtimePeriod(message.period) && !marketOpen) {
       const response: StockChartResponseMessage = {
         type: 'chartData',
         period: message.period,

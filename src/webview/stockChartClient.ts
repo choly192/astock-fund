@@ -71,10 +71,21 @@ const latestPoint = document.querySelector<HTMLElement>('.latest-point')!;
 const headline = document.querySelector<HTMLElement>('.headline')!;
 const priceElement = document.querySelector<HTMLElement>('.price')!;
 const percentElement = document.querySelector<HTMLElement>('.percent')!;
+const quoteTimeElement = document.querySelector<HTMLElement>('.quote-time')!;
+const statElements = {
+  open: document.querySelector<HTMLElement>('[data-stat="open"]')!,
+  high: document.querySelector<HTMLElement>('[data-stat="high"]')!,
+  low: document.querySelector<HTMLElement>('[data-stat="low"]')!,
+  change: document.querySelector<HTMLElement>('[data-stat="change"]')!,
+  volume: document.querySelector<HTMLElement>('[data-stat="volume"]')!,
+};
 const tabs = Array.from(document.querySelectorAll<HTMLButtonElement>('.period-tab'));
 
 const TREND_POLL_INTERVAL_MS = 5000;
+const MINUTE_POLL_INTERVAL_MS = 15000;
 const REQUEST_TIMEOUT_MS = 15000;
+const isRealtimePeriod = (period: StockChartPeriod) =>
+  period === 'trend' || period.endsWith('m');
 
 const chart = createChart(container, {
   autoSize: true,
@@ -111,7 +122,7 @@ let volumeSeries: any;
 let renderedPeriod: StockChartPeriod | undefined;
 let renderedKind: StockChartData['kind'] | undefined;
 let latestValue: { time: Time; price: number } | undefined;
-let trendPollTimer: number | undefined;
+let realtimePollTimer: number | undefined;
 let nextRequestId = 0;
 let activeRequestId = 0;
 let requestPending = false;
@@ -153,13 +164,37 @@ function updateLatestPointPosition(): void {
   latestPoint.classList.add('visible');
 }
 
-function updateHeadline(data: StockChartData): void {
+function formatCompactVolume(value: number): string {
+  if (value >= 100000000) return `${(value / 100000000).toFixed(2)}亿`;
+  if (value >= 10000) return `${(value / 10000).toFixed(2)}万`;
+  return Math.round(value).toLocaleString('zh-CN');
+}
+
+function formatChartTime(time: Time): string {
+  if (typeof time === 'number') {
+    return new Date(time * 1000).toISOString().slice(0, 16).replace('T', ' ');
+  }
+  if (typeof time === 'string') return time;
+  return `${time.year}-${String(time.month).padStart(2, '0')}-${String(time.day).padStart(2, '0')}`;
+}
+
+function updateQuoteSummary(data: StockChartData): void {
   if (data.period !== 'trend' || !data.points.length) return;
   const last = data.points[data.points.length - 1];
+  const open = data.points[0].open;
+  const high = Math.max(...data.points.map((point) => point.high));
+  const low = Math.min(...data.points.map((point) => point.low));
+  const volume = data.points.reduce((total, point) => total + point.volume, 0);
   priceElement.textContent = last.close.toFixed(2);
+  statElements.open.textContent = open.toFixed(2);
+  statElements.high.textContent = high.toFixed(2);
+  statElements.low.textContent = low.toFixed(2);
+  statElements.volume.textContent = formatCompactVolume(volume);
+  quoteTimeElement.textContent = formatChartTime(last.time as Time);
   if (!data.previousClose) return;
   const change = last.close - data.previousClose;
   const percent = change / data.previousClose * 100;
+  statElements.change.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}`;
   percentElement.textContent = `${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%`;
   headline.classList.toggle('rise', change > 0);
   headline.classList.toggle('fall', change < 0);
@@ -257,7 +292,7 @@ function render(data: StockChartData, marketOpen = true): void {
   }));
   volumeSeries.setData(volumes);
   if (rebuild) chart.timeScale().fitContent();
-  updateHeadline(data);
+  updateQuoteSummary(data);
   const last = data.points[data.points.length - 1];
   latestValue = data.period === 'trend' && last
     ? { time: last.time as Time, price: last.close }
@@ -267,19 +302,23 @@ function render(data: StockChartData, marketOpen = true): void {
   loading.hidden = true;
 }
 
-function stopTrendPolling(): void {
-  if (trendPollTimer !== undefined) window.clearInterval(trendPollTimer);
-  trendPollTimer = undefined;
+function stopRealtimePolling(): void {
+  if (realtimePollTimer !== undefined) window.clearInterval(realtimePollTimer);
+  realtimePollTimer = undefined;
 }
 
-function startTrendPolling(): void {
-  if (trendPollTimer !== undefined || currentPeriod !== 'trend' || document.hidden) return;
-  trendPollTimer = window.setInterval(() => requestPeriod('trend', true), TREND_POLL_INTERVAL_MS);
+function startRealtimePolling(): void {
+  if (realtimePollTimer !== undefined || !isRealtimePeriod(currentPeriod) || document.hidden) return;
+  const interval = currentPeriod === 'trend' ? TREND_POLL_INTERVAL_MS : MINUTE_POLL_INTERVAL_MS;
+  realtimePollTimer = window.setInterval(
+    () => requestPeriod(currentPeriod, true),
+    interval
+  );
 }
 
 function requestPeriod(period: StockChartPeriod, refresh = false): void {
   if (refresh) {
-    if (period !== 'trend' || currentPeriod !== 'trend' || document.hidden) return;
+    if (!isRealtimePeriod(period) || currentPeriod !== period || document.hidden) return;
     if (requestPending && Date.now() - requestStartedAt < REQUEST_TIMEOUT_MS) return;
   } else {
     currentPeriod = period;
@@ -290,10 +329,11 @@ function requestPeriod(period: StockChartPeriod, refresh = false): void {
     });
     latestPoint.classList.remove('visible');
     setLoading('正在加载行情...');
+    stopRealtimePolling();
   }
 
-  if (period === 'trend') startTrendPolling();
-  else stopTrendPolling();
+  if (isRealtimePeriod(period)) startRealtimePolling();
+  else stopRealtimePolling();
 
   const requestId = ++nextRequestId;
   activeRequestId = requestId;
@@ -326,20 +366,20 @@ window.addEventListener('message', (event: MessageEvent<StockChartResponseMessag
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    stopTrendPolling();
+    stopRealtimePolling();
     latestPoint.classList.remove('visible');
     return;
   }
-  if (currentPeriod === 'trend') {
-    requestPeriod('trend', true);
-    startTrendPolling();
+  if (isRealtimePeriod(currentPeriod)) {
+    requestPeriod(currentPeriod, true);
+    startRealtimePolling();
   }
   updateLatestPointPosition();
 });
 
 chart.timeScale().subscribeVisibleLogicalRangeChange(() => updateLatestPointPosition());
 window.addEventListener('resize', () => window.requestAnimationFrame(updateLatestPointPosition));
-window.addEventListener('pagehide', stopTrendPolling);
+window.addEventListener('pagehide', stopRealtimePolling);
 
 chart.subscribeCrosshairMove((param) => {
   if (!param.time || !mainSeries) {
@@ -348,12 +388,17 @@ chart.subscribeCrosshairMove((param) => {
   }
   const value: any = param.seriesData.get(mainSeries);
   if (!value) return;
+  const volume: any = volumeSeries ? param.seriesData.get(volumeSeries) : undefined;
+  const average: any = averageSeries ? param.seriesData.get(averageSeries) : undefined;
+  const time = formatChartTime(param.time as Time);
+  const volumeText = volume?.value === undefined ? '' : `  量 ${formatCompactVolume(volume.value)}`;
   if ('open' in value) {
-    legend.textContent = `开 ${value.open.toFixed(2)}  高 ${value.high.toFixed(
+    legend.textContent = `${time}  开 ${value.open.toFixed(2)}  高 ${value.high.toFixed(
       2
-    )}  低 ${value.low.toFixed(2)}  收 ${value.close.toFixed(2)}`;
+    )}  低 ${value.low.toFixed(2)}  收 ${value.close.toFixed(2)}${volumeText}`;
   } else {
-    legend.textContent = `价格 ${value.value.toFixed(2)}`;
+    const averageText = average?.value === undefined ? '' : `  均价 ${average.value.toFixed(2)}`;
+    legend.textContent = `${time}  价格 ${value.value.toFixed(2)}${averageText}${volumeText}`;
   }
 });
 

@@ -28,6 +28,42 @@ suite('Quote cache and cancellation', () => {
     assert.equal(result[0].info.stale, true);
   });
 
+  test('preserves quotes from closed markets during a partial refresh', async () => {
+    const mainland: StockInfo = {
+      code: 'sh000001', name: '上证指数', price: '3600.00', percent: '0.20', type: 'sh',
+    };
+    const us: StockInfo = {
+      code: 'usr_nvda', name: '英伟达', price: '180.00', percent: '1.20', type: 'usr_',
+    };
+    const service = new StockService(createContext({
+      'stock-eagle-eye.stockQuoteCache': [mainland, us],
+    }));
+    (service as any).getSinaStockData = async () => [];
+    (service as any).getHKStockData = async () => [];
+
+    const result = await service.getData(['sh000001'], true);
+    assert.deepStrictEqual(
+      result.map((item) => item.info.code).sort(),
+      ['sh000001', 'usr_nvda']
+    );
+  });
+
+  test('batches large stock requests', async () => {
+    const service = new StockService(createContext({}));
+    const batchSizes: number[] = [];
+    (service as any).getSinaStockBatch = async (codes: string[]) => {
+      batchSizes.push(codes.length);
+      return [];
+    };
+    (service as any).getHKStockData = async () => [];
+    const codes = Array.from({ length: 165 }, (_item, index) =>
+      `sh${String(index).padStart(6, '0')}`
+    );
+
+    await service.getData(codes);
+    assert.deepStrictEqual(batchSizes.sort((a, b) => b - a), [80, 80, 5]);
+  });
+
   test('uses the last fund quote when the upstream request fails', async () => {
     const cached: FundInfo = {
       code: '110022', name: '测试基金', netValue: '2.5000', percent: '1.20', type: 'fund',

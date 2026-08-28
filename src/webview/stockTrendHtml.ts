@@ -84,16 +84,16 @@ export function getStockTrendHtml(
     <header class="quote">
       <section class="identity">
         <h1>${escapeHtml(info.name)}</h1>
-        <div class="meta">${escapeHtml(info.code.toUpperCase())} · ${display(info.source)} · ${display(info.time)}</div>
+        <div class="meta">${escapeHtml(info.code.toUpperCase())} · ${display(info.source)} · <span class="quote-time">${display(info.time)}</span></div>
         <div class="headline ${trendClass}"><span class="price">${display(info.price)}</span><span class="percent">${percent}</span></div>
       </section>
       <dl class="stats">
-        <div><dt>今开</dt><dd>${display(info.open)}</dd></div>
-        <div><dt>最高</dt><dd>${display(info.high)}</dd></div>
-        <div><dt>最低</dt><dd>${display(info.low)}</dd></div>
+        <div><dt>今开</dt><dd data-stat="open">${display(info.open)}</dd></div>
+        <div><dt>最高</dt><dd data-stat="high">${display(info.high)}</dd></div>
+        <div><dt>最低</dt><dd data-stat="low">${display(info.low)}</dd></div>
         <div><dt>昨收</dt><dd>${display(info.yestclose)}</dd></div>
-        <div><dt>涨跌</dt><dd>${display(info.updown)}</dd></div>
-        <div><dt>成交量</dt><dd>${display(info.volume)}</dd></div>
+        <div><dt>涨跌</dt><dd data-stat="change">${display(info.updown)}</dd></div>
+        <div><dt>成交量</dt><dd data-stat="volume">${display(info.volume)}</dd></div>
         <div><dt>成交额</dt><dd>${display(info.amount)}</dd></div>
       </dl>
       <a class="external" href="${safeUrl}" title="在系统浏览器中打开东方财富行情">浏览器打开</a>

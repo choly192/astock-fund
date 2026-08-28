@@ -15,10 +15,16 @@ if (!match) {
 
 const projectRoot = path.resolve(__dirname, '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+const lockfile = JSON.parse(fs.readFileSync(path.join(projectRoot, 'package-lock.json'), 'utf8'));
 const version = match[1];
 if (manifest.version !== version) {
   throw new Error(
     `Tag ${tag} does not match package.json version ${manifest.version}`
+  );
+}
+if (lockfile.version !== version || lockfile.packages?.['']?.version !== version) {
+  throw new Error(
+    `package-lock.json version does not match package.json version ${version}`
   );
 }
 

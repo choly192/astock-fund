@@ -86,8 +86,25 @@ export class StockAlertManager implements Disposable {
     await this.save();
   }
 
+  async updateValue(id: string, value: number): Promise<void> {
+    const rule = this.rules.find((item) => item.id === id);
+    if (!rule || !Number.isFinite(value)) return;
+    rule.value = value;
+    rule.enabled = true;
+    rule.active = false;
+    await this.save();
+  }
+
   async remove(id: string): Promise<void> {
     this.rules = this.rules.filter((rule) => rule.id !== id);
+    await this.save();
+  }
+
+  async removeMissingCodes(codes: string[]): Promise<void> {
+    const validCodes = new Set(codes.map((code) => code.toLowerCase()));
+    const next = this.rules.filter((rule) => validCodes.has(rule.code.toLowerCase()));
+    if (next.length === this.rules.length) return;
+    this.rules = next;
     await this.save();
   }
 

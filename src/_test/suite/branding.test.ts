@@ -23,6 +23,8 @@ suite('Brand manifest', () => {
     assert.equal(manifest.name, 'stock-eagle-eye');
     assert.equal(manifest.displayName, 'stock-eagle-eye');
     assert.equal(manifest.publisher, 'stock-eagle-eye');
+    assert.ok(manifest.homepage.includes('github.com/choly192/astock-fund'));
+    assert.ok(manifest.bugs.url.includes('github.com/choly192/astock-fund/issues'));
     assert.match(manifest.version, /^1\.\d+\.\d+$/);
     assert.equal(lockfile.version, manifest.version);
     assert.equal(lockfile.packages[''].version, manifest.version);

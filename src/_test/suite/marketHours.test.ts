@@ -1,5 +1,5 @@
 import * as assert from 'assert';
-import { isAnyStockMarketOpen } from '../../shared/utils';
+import { getOpenStockCodes, isAnyStockMarketOpen } from '../../shared/utils';
 
 suite('Market hours', () => {
   test('does not poll mainland stocks during the lunch break', () => {
@@ -24,6 +24,18 @@ suite('Market hours', () => {
     assert.equal(
       isAnyStockMarketOpen(['usr_nvda'], new Date('2026-08-14T13:45:00.000Z')),
       true
+    );
+  });
+
+  test('returns only symbols whose own market is open', () => {
+    const codes = ['sh000001', 'hk00700', 'usr_nvda'];
+    assert.deepStrictEqual(
+      getOpenStockCodes(codes, new Date('2026-08-14T02:00:00.000Z')),
+      ['sh000001', 'hk00700']
+    );
+    assert.deepStrictEqual(
+      getOpenStockCodes(codes, new Date('2026-08-14T14:00:00.000Z')),
+      ['usr_nvda']
     );
   });
 });

@@ -40,6 +40,8 @@ suite('Stock trend webview', () => {
     assert.ok(!html.includes('<dt>获取</dt>'));
     assert.ok(html.includes('class="latest-point"'));
     assert.ok(html.includes('@keyframes latest-point-pulse'));
+    assert.ok(html.includes('data-stat="volume"'));
+    assert.ok(html.includes('class="quote-time"'));
 
     const chartClient = fs.readFileSync(
       path.join(projectRoot, 'src', 'webview', 'stockChartClient.ts'),
@@ -47,8 +49,10 @@ suite('Stock trend webview', () => {
     );
     assert.ok(chartClient.includes('attributionLogo: false'));
     assert.ok(chartClient.includes('TREND_POLL_INTERVAL_MS = 5000'));
+    assert.ok(chartClient.includes('MINUTE_POLL_INTERVAL_MS = 15000'));
     assert.ok(chartClient.includes("document.addEventListener('visibilitychange'"));
-    assert.ok(chartClient.includes("requestPeriod('trend', true)"));
+    assert.ok(chartClient.includes('requestPeriod(currentPeriod, true)'));
+    assert.ok(chartClient.includes('均价'));
   });
 
   test('escapes quote text before placing it in HTML', () => {
