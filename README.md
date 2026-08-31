@@ -22,7 +22,13 @@
 
 # 预览
 
+## 分时
+
 ![插件预览](./screenshot/preview.png)
+
+## 均线&缠论
+
+![均线预览](./screenshot/preview2.png)
 
 ## 数据说明
 

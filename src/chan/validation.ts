@@ -8,17 +8,27 @@ import {
   ChanTime,
 } from './engine';
 import { StockChartPeriod, StockChartPoint } from '../shared/stockChartProtocol';
+import {
+  ChanMarketRegime,
+  classifyMarketRegime,
+  DEFAULT_CHAN_MARKET_REGIME_OPTIONS,
+} from './marketRegime';
 
-export const CHAN_VALIDATION_SCHEMA_VERSION = '1.2.0';
+export { classifyMarketRegime } from './marketRegime';
+export type { ChanMarketRegime } from './marketRegime';
+
+export const CHAN_VALIDATION_SCHEMA_VERSION = '1.3.0';
 
 export type ChanValidationPeriod = Exclude<StockChartPeriod, 'trend'>;
 export type ChanStabilityViolationKind = 'future-confirmation' | 'missing' | 'mutated';
 export type ChanValidationSample = 'development' | 'holdout';
-export type ChanMarketRegime = 'bull' | 'bear' | 'sideways';
+export type ChanAssetType = 'stock' | 'index' | 'etf' | 'fund' | 'unknown';
+export type ChanReturnMode = 'long' | 'downside-follow-through';
 
 export interface ChanValidationDataset {
   symbol: string;
   period: ChanValidationPeriod;
+  assetType?: ChanAssetType;
   source?: string;
   points: StockChartPoint[];
 }
@@ -42,12 +52,14 @@ export interface ChanReplayResult {
   algorithmVersion: string;
   barCount: number;
   signals: ChanReplaySignal[];
+  ruleSignals: ChanReplaySignal[];
   stabilityViolations: ChanStabilityViolation[];
 }
 
 export interface ChanBacktestOptions {
   horizons: number[];
   feeBps: number;
+  sellTaxBps: number;
   slippageBps: number;
   developmentRatio: number;
   regimeMaBars: number;
@@ -58,10 +70,14 @@ export interface ChanBacktestOptions {
 export interface ChanTradeEvaluation {
   symbol: string;
   period: ChanValidationPeriod;
+  assetType: ChanAssetType;
   sample: ChanValidationSample;
   regime: ChanMarketRegime;
   signalId: string;
   side: ChanSignalSide;
+  returnMode: ChanReturnMode;
+  executable: boolean;
+  roundTripCostBps: number;
   level: ChanSignalLevel;
   variant: ChanSignalVariant;
   signalTime: ChanTime;
@@ -93,7 +109,9 @@ export interface ChanMetricSummary {
   averageReturn: number | null;
   medianReturn: number | null;
   profitFactor: number | null;
-  maxDrawdown: number | null;
+  sequentialSignalDrawdown: number | null;
+  medianDatasetSignalDrawdown: number | null;
+  worstDatasetSignalDrawdown: number | null;
   averageMfe: number | null;
   averageMae: number | null;
 }
@@ -129,6 +147,16 @@ export interface ChanOpportunityCoverage {
   coverageRate: number | null;
 }
 
+export interface ChanVariantOpportunityCoverage extends ChanOpportunityCoverage {
+  variant: ChanSignalVariant;
+}
+
+export interface ChanOpportunitySensitivity {
+  thresholdAdjustment: number;
+  signalWindow: number;
+  coverage: ChanOpportunityCoverage[];
+}
+
 export interface ChanRuleDiagnostic {
   side: ChanSignalSide;
   level: ChanSignalLevel;
@@ -144,6 +172,7 @@ export interface ChanRuleDiagnostic {
 export interface ChanDatasetValidationReport {
   symbol: string;
   period: ChanValidationPeriod;
+  assetType: ChanAssetType;
   source?: string;
   barCount: number;
   firstTime: ChanTime;
@@ -151,6 +180,7 @@ export interface ChanDatasetValidationReport {
   buyAndHoldNetReturn: number;
   replay: ChanReplayResult;
   trades: ChanTradeEvaluation[];
+  ruleTrades: ChanTradeEvaluation[];
   metrics: ChanMetricSummary[];
   variantMetrics: ChanVariantMetricSummary[];
   upsideOpportunities: ChanUpsideOpportunity[];
@@ -164,8 +194,11 @@ export interface ChanValidationReport {
     datasetCount: number;
     barCount: number;
     signalCount: number;
+    ruleSignalCount: number;
     stabilityViolationCount: number;
     tradeEvaluationCount: number;
+    ruleTradeEvaluationCount: number;
+    executableTradeEvaluationCount: number;
     developmentTradeEvaluationCount: number;
     holdoutTradeEvaluationCount: number;
     upsideOpportunityCount: number;
@@ -175,6 +208,8 @@ export interface ChanValidationReport {
   variantMetrics: ChanVariantMetricSummary[];
   metricSlices: ChanMetricSlice[];
   opportunityCoverage: ChanOpportunityCoverage[];
+  variantOpportunityCoverage: ChanVariantOpportunityCoverage[];
+  opportunitySensitivity: ChanOpportunitySensitivity[];
   ruleDiagnostics: ChanRuleDiagnostic[];
   datasets: ChanDatasetValidationReport[];
 }
@@ -182,11 +217,10 @@ export interface ChanValidationReport {
 const DEFAULT_OPTIONS: ChanBacktestOptions = {
   horizons: [5, 10, 20],
   feeBps: 3,
+  sellTaxBps: 5,
   slippageBps: 2,
   developmentRatio: 0.7,
-  regimeMaBars: 60,
-  regimeSlopeBars: 20,
-  regimeThreshold: 0.005,
+  ...DEFAULT_CHAN_MARKET_REGIME_OPTIONS,
 };
 
 const SIGNAL_STABLE_FIELDS: Array<keyof ChanSignal> = [
@@ -204,6 +238,9 @@ const SIGNAL_STABLE_FIELDS: Array<keyof ChanSignal> = [
 
 const VALID_PERIODS = new Set<ChanValidationPeriod>([
   'day', 'week', 'month', '5m', '15m', '30m', '60m',
+]);
+const VALID_ASSET_TYPES = new Set<ChanAssetType>([
+  'stock', 'index', 'etf', 'fund', 'unknown',
 ]);
 
 function round(value: number): number {
@@ -261,6 +298,13 @@ function validateTimeOrder(points: readonly StockChartPoint[]): void {
   }
 }
 
+export function inferChanAssetType(symbol: string): ChanAssetType {
+  const normalized = symbol.trim().toLowerCase();
+  if (/^sh000\d{3}$/.test(normalized) || /^sz399\d{3}$/.test(normalized)) return 'index';
+  if (/^(sh|sz|bj)\d{6}$/.test(normalized)) return 'stock';
+  return 'unknown';
+}
+
 export function parseChanValidationDatasets(value: unknown): ChanValidationDataset[] {
   const rawDatasets = Array.isArray(value)
     ? value
@@ -281,9 +325,16 @@ export function parseChanValidationDatasets(value: unknown): ChanValidationDatas
     }
     const points = raw.points.map(validatePoint);
     validateTimeOrder(points);
+    const assetType = raw.assetType === undefined
+      ? inferChanAssetType(symbol)
+      : raw.assetType;
+    if (typeof assetType !== 'string' || !VALID_ASSET_TYPES.has(assetType as ChanAssetType)) {
+      throw new Error(`datasets[${datasetIndex}].assetType 不是支持的资产类型`);
+    }
     return {
       symbol,
       period: period as ChanValidationPeriod,
+      assetType: assetType as ChanAssetType,
       source: typeof raw.source === 'string' && raw.source.trim()
         ? raw.source.trim()
         : undefined,
@@ -301,9 +352,11 @@ export function normalizeChanBacktestOptions(
     throw new Error('horizons 必须包含正整数');
   }
   const feeBps = options.feeBps ?? DEFAULT_OPTIONS.feeBps;
+  const sellTaxBps = options.sellTaxBps ?? DEFAULT_OPTIONS.sellTaxBps;
   const slippageBps = options.slippageBps ?? DEFAULT_OPTIONS.slippageBps;
-  if (![feeBps, slippageBps].every((value) => Number.isFinite(value) && value >= 0)) {
-    throw new Error('feeBps 和 slippageBps 必须是非负有限数字');
+  if (![feeBps, sellTaxBps, slippageBps]
+    .every((value) => Number.isFinite(value) && value >= 0)) {
+    throw new Error('feeBps、sellTaxBps 和 slippageBps 必须是非负有限数字');
   }
   const developmentRatio = options.developmentRatio ?? DEFAULT_OPTIONS.developmentRatio;
   if (!Number.isFinite(developmentRatio) || developmentRatio <= 0 || developmentRatio >= 1) {
@@ -321,6 +374,7 @@ export function normalizeChanBacktestOptions(
   return {
     horizons,
     feeBps,
+    sellTaxBps,
     slippageBps,
     developmentRatio,
     regimeMaBars,
@@ -338,6 +392,7 @@ export function replayChanAnalysis(
   period?: ChanValidationPeriod
 ): ChanReplayResult {
   const observedSignals = new Map<string, ChanReplaySignal>();
+  const observedRuleSignals = new Map<string, ChanReplaySignal>();
   const violations: ChanStabilityViolation[] = [];
   const violationKeys = new Set<string>();
 
@@ -360,42 +415,56 @@ export function replayChanAnalysis(
     });
   };
 
-  points.forEach((_point, index) => {
-    const currentSignals = analyzeChan(points.slice(0, index + 1), { period }).signals;
+  const observe = (
+    currentSignals: readonly ChanSignal[],
+    observed: Map<string, ChanReplaySignal>,
+    index: number,
+    auditStability: boolean
+  ) => {
     const currentById = new Map(currentSignals.map((signal) => [signal.id, signal]));
-
     currentSignals.forEach((signal) => {
-      const observed = observedSignals.get(signal.id);
-      if (!observed) {
+      const existing = observed.get(signal.id);
+      if (!existing) {
         const replaySignal: ChanReplaySignal = {
           ...signal,
           firstSeenIndex: index,
           firstSeenTime: points[index].time,
           confirmationLagBars: index - signal.confirmedIndex,
         };
-        observedSignals.set(signal.id, replaySignal);
-        if (signal.confirmedIndex > index) {
+        observed.set(signal.id, replaySignal);
+        if (auditStability && signal.confirmedIndex > index) {
           addViolation(replaySignal, 'future-confirmation', index);
         }
         return;
       }
-      const changedFields = changedSignalFields(observed, signal);
-      if (changedFields.length) addViolation(observed, 'mutated', index, changedFields);
+      if (!auditStability) return;
+      const changedFields = changedSignalFields(existing, signal);
+      if (changedFields.length) addViolation(existing, 'mutated', index, changedFields);
     });
 
-    observedSignals.forEach((signal) => {
+    if (!auditStability) return;
+    observed.forEach((signal) => {
       if (signal.firstSeenIndex < index && !currentById.has(signal.id)) {
         addViolation(signal, 'missing', index);
       }
     });
+  };
+
+  points.forEach((_point, index) => {
+    const analysis = analyzeChan(points.slice(0, index + 1), { period });
+    observe(analysis.signals, observedSignals, index, false);
+    observe(analysis.signalMatches, observedRuleSignals, index, true);
   });
+
+  const sortSignals = (signals: Iterable<ChanReplaySignal>) => [...signals].sort(
+    (left, right) => left.firstSeenIndex - right.firstSeenIndex || left.level - right.level
+  );
 
   return {
     algorithmVersion: CHAN_ALGORITHM_VERSION,
     barCount: points.length,
-    signals: [...observedSignals.values()].sort(
-      (left, right) => left.firstSeenIndex - right.firstSeenIndex || left.level - right.level
-    ),
+    signals: sortSignals(observedSignals.values()),
+    ruleSignals: sortSignals(observedRuleSignals.values()),
     stabilityViolations: violations.sort(
       (left, right) => left.checkedAtIndex - right.checkedAtIndex
     ),
@@ -423,49 +492,20 @@ function calculateExcursion(
   };
 }
 
-function movingAverageAt(
-  points: readonly StockChartPoint[],
-  index: number,
-  bars: number
-): number | undefined {
-  const start = index - bars + 1;
-  if (start < 0) return undefined;
-  let total = 0;
-  for (let cursor = start; cursor <= index; cursor += 1) total += points[cursor].close;
-  return total / bars;
-}
-
-export function classifyMarketRegime(
-  points: readonly StockChartPoint[],
-  availableIndex: number,
-  options: Pick<ChanBacktestOptions, 'regimeMaBars' | 'regimeSlopeBars' | 'regimeThreshold'>
-): ChanMarketRegime {
-  const currentMa = movingAverageAt(points, availableIndex, options.regimeMaBars);
-  const previousMa = movingAverageAt(
-    points,
-    availableIndex - options.regimeSlopeBars,
-    options.regimeMaBars
-  );
-  if (currentMa === undefined || previousMa === undefined || previousMa === 0) return 'sideways';
-  const closeDistance = points[availableIndex].close / currentMa - 1;
-  const slope = currentMa / previousMa - 1;
-  if (closeDistance > options.regimeThreshold && slope > options.regimeThreshold) return 'bull';
-  if (closeDistance < -options.regimeThreshold && slope < -options.regimeThreshold) return 'bear';
-  return 'sideways';
-}
-
 export function evaluateChanSignals(
   dataset: ChanValidationDataset,
   replay: ChanReplayResult,
-  options: Partial<ChanBacktestOptions> = {}
+  options: Partial<ChanBacktestOptions> = {},
+  signals: readonly ChanReplaySignal[] = replay.signals
 ): ChanTradeEvaluation[] {
   const normalized = normalizeChanBacktestOptions(options);
   const slippage = normalized.slippageBps / 10000;
-  const roundTripFee = normalized.feeBps * 2 / 10000;
+  const assetType = dataset.assetType ?? inferChanAssetType(dataset.symbol);
+  const taxableStock = assetType === 'stock' || assetType === 'unknown';
   const trades: ChanTradeEvaluation[] = [];
   const splitIndex = Math.floor(dataset.points.length * normalized.developmentRatio);
 
-  replay.signals.forEach((signal) => {
+  signals.forEach((signal) => {
     const entryIndex = signal.firstSeenIndex + 1;
     const entryBar = dataset.points[entryIndex];
     if (!entryBar) return;
@@ -479,12 +519,14 @@ export function evaluateChanSignals(
       if (!sample) return;
       const rawEntry = entryBar.open;
       const rawExit = exitBar.close;
-      const adjustedEntry = signal.side === 'buy'
-        ? rawEntry * (1 + slippage)
-        : rawEntry * (1 - slippage);
-      const adjustedExit = signal.side === 'buy'
-        ? rawExit * (1 - slippage)
-        : rawExit * (1 + slippage);
+      const returnMode: ChanReturnMode = signal.side === 'buy'
+        ? 'long'
+        : 'downside-follow-through';
+      const roundTripCostBps = signal.side === 'buy'
+        ? normalized.feeBps * 2 + (taxableStock ? normalized.sellTaxBps : 0)
+        : 0;
+      const adjustedEntry = signal.side === 'buy' ? rawEntry * (1 + slippage) : rawEntry;
+      const adjustedExit = signal.side === 'buy' ? rawExit * (1 - slippage) : rawExit;
       const excursion = calculateExcursion(
         signal.side,
         rawEntry,
@@ -493,10 +535,14 @@ export function evaluateChanSignals(
       trades.push({
         symbol: dataset.symbol,
         period: dataset.period,
+        assetType,
         sample,
         regime: classifyMarketRegime(dataset.points, signal.firstSeenIndex, normalized),
         signalId: signal.id,
         side: signal.side,
+        returnMode,
+        executable: signal.side === 'buy' && assetType !== 'index',
+        roundTripCostBps,
         level: signal.level,
         variant: signal.variant,
         signalTime: signal.time,
@@ -512,7 +558,7 @@ export function evaluateChanSignals(
         exitPrice: rawExit,
         grossReturn: round(directionalReturn(signal.side, rawEntry, rawExit)),
         netReturn: round(
-          directionalReturn(signal.side, adjustedEntry, adjustedExit) - roundTripFee
+          directionalReturn(signal.side, adjustedEntry, adjustedExit) - roundTripCostBps / 10000
         ),
         mfe: round(excursion.mfe),
         mae: round(excursion.mae),
@@ -536,6 +582,18 @@ function median(values: readonly number[]): number | null {
   return round(sorted.length % 2
     ? sorted[middle]
     : (sorted[middle - 1] + sorted[middle]) / 2);
+}
+
+function sequentialSignalDrawdown(returns: readonly number[]): number {
+  let equity = 1;
+  let peak = 1;
+  let drawdown = 0;
+  returns.forEach((value) => {
+    equity *= Math.max(0, 1 + value);
+    peak = Math.max(peak, equity);
+    drawdown = Math.max(drawdown, peak ? 1 - equity / peak : 1);
+  });
+  return round(drawdown);
 }
 
 function summarizeTrades(
@@ -565,14 +623,16 @@ function summarizeTrades(
   const losses = returns.filter((value) => value < 0);
   const grossProfit = wins.reduce((total, value) => total + value, 0);
   const grossLoss = Math.abs(losses.reduce((total, value) => total + value, 0));
-  let equity = 1;
-  let peak = 1;
-  let maxDrawdown = 0;
-  returns.forEach((value) => {
-    equity *= Math.max(0, 1 + value);
-    peak = Math.max(peak, equity);
-    maxDrawdown = Math.max(maxDrawdown, peak ? 1 - equity / peak : 1);
+  const byDataset = new Map<string, ChanTradeEvaluation[]>();
+  selected.forEach((trade) => {
+    const key = `${trade.symbol}\u0000${trade.period}`;
+    const values = byDataset.get(key) ?? [];
+    values.push(trade);
+    byDataset.set(key, values);
   });
+  const datasetDrawdowns = [...byDataset.values()].map((values) =>
+    sequentialSignalDrawdown(values.map((trade) => trade.netReturn))
+  );
   return {
     group: side === 'all' ? 'all' : `${side}:${level}`,
     side,
@@ -585,7 +645,9 @@ function summarizeTrades(
     averageReturn: average(returns),
     medianReturn: median(returns),
     profitFactor: grossLoss > 0 ? round(grossProfit / grossLoss) : null,
-    maxDrawdown: selected.length ? round(maxDrawdown) : null,
+    sequentialSignalDrawdown: selected.length ? sequentialSignalDrawdown(returns) : null,
+    medianDatasetSignalDrawdown: median(datasetDrawdowns),
+    worstDatasetSignalDrawdown: datasetDrawdowns.length ? Math.max(...datasetDrawdowns) : null,
     averageMfe: average(selected.map((trade) => trade.mfe)),
     averageMae: average(selected.map((trade) => trade.mae)),
   };
@@ -610,8 +672,7 @@ function buildVariantMetrics(
   trades: readonly ChanTradeEvaluation[],
   horizons: readonly number[]
 ): ChanVariantMetricSummary[] {
-  const variants: ChanSignalVariant[] = ['standard', 'local-divergence', 'local-second'];
-  return variants.flatMap((variant) => horizons.map((horizon) => ({
+  return CHAN_SIGNAL_VARIANTS.flatMap((variant) => horizons.map((horizon) => ({
     ...summarizeTrades(
       trades.filter((trade) => trade.variant === variant),
       horizon,
@@ -623,43 +684,68 @@ function buildVariantMetrics(
   })));
 }
 
-const UPSIDE_OPPORTUNITY_HORIZON = 20;
-const UPSIDE_SIGNAL_WINDOW = 8;
-const UPSIDE_OPPORTUNITY_COOLDOWN = 10;
+const CHAN_SIGNAL_VARIANTS: readonly ChanSignalVariant[] = [
+  'standard', 'local-divergence', 'local-second',
+];
 
-function upsideOpportunityThreshold(period: ChanValidationPeriod): number {
-  return period === 'week' ? 0.12 : 0.15;
+interface ChanOpportunityOptions {
+  horizon: number;
+  signalWindow: number;
+  cooldown: number;
+  thresholdAdjustment: number;
+}
+
+const DEFAULT_OPPORTUNITY_OPTIONS: ChanOpportunityOptions = {
+  horizon: 20,
+  signalWindow: 8,
+  cooldown: 10,
+  thresholdAdjustment: 0,
+};
+const OPPORTUNITY_THRESHOLD_ADJUSTMENTS = [-0.03, 0, 0.03] as const;
+const OPPORTUNITY_SIGNAL_WINDOWS = [5, 8, 11] as const;
+
+function upsideOpportunityThreshold(
+  period: ChanValidationPeriod,
+  adjustment: number
+): number {
+  return Math.max(0, (period === 'week' ? 0.12 : 0.15) + adjustment);
 }
 
 export function evaluateUpsideOpportunities(
   dataset: ChanValidationDataset,
   replay: ChanReplayResult,
-  options: Partial<ChanBacktestOptions> = {}
+  options: Partial<ChanBacktestOptions> = {},
+  signals: readonly ChanReplaySignal[] = replay.signals,
+  opportunityOptions: Partial<ChanOpportunityOptions> = {}
 ): ChanUpsideOpportunity[] {
   const normalized = normalizeChanBacktestOptions(options);
+  const opportunity = { ...DEFAULT_OPPORTUNITY_OPTIONS, ...opportunityOptions };
   const points = dataset.points;
   const splitIndex = Math.floor(points.length * normalized.developmentRatio);
   const opportunities: ChanUpsideOpportunity[] = [];
-  let lastOpportunityIndex = -UPSIDE_OPPORTUNITY_COOLDOWN;
-  for (let index = 2; index < points.length - UPSIDE_OPPORTUNITY_HORIZON; index += 1) {
-    if (index - lastOpportunityIndex < UPSIDE_OPPORTUNITY_COOLDOWN) continue;
+  let lastOpportunityIndex = -opportunity.cooldown;
+  for (let index = 2; index < points.length - opportunity.horizon; index += 1) {
+    if (index - lastOpportunityIndex < opportunity.cooldown) continue;
     const current = points[index];
     const localBottom = [points[index - 2], points[index - 1], points[index + 1], points[index + 2]]
       .every((point) => current.low < point.low);
     if (!localBottom) continue;
-    const forwardBars = points.slice(index + 1, index + UPSIDE_OPPORTUNITY_HORIZON + 1);
+    const forwardBars = points.slice(index + 1, index + opportunity.horizon + 1);
     const peakClose = Math.max(...forwardBars.map((point) => point.close));
     const forwardReturn = peakClose / current.close - 1;
-    if (forwardReturn < upsideOpportunityThreshold(dataset.period)) continue;
+    if (forwardReturn < upsideOpportunityThreshold(
+      dataset.period,
+      opportunity.thresholdAdjustment
+    )) continue;
     lastOpportunityIndex = index;
-    const sample = index + UPSIDE_OPPORTUNITY_HORIZON < splitIndex
+    const sample = index + opportunity.horizon < splitIndex
       ? 'development'
       : index >= splitIndex ? 'holdout' : undefined;
     if (!sample) continue;
-    const signal = replay.signals.find((candidate) =>
+    const signal = signals.find((candidate) =>
       candidate.side === 'buy'
       && candidate.firstSeenIndex >= index
-      && candidate.firstSeenIndex <= index + UPSIDE_SIGNAL_WINDOW
+      && candidate.firstSeenIndex <= index + opportunity.signalWindow
     );
     opportunities.push({
       symbol: dataset.symbol,
@@ -668,7 +754,7 @@ export function evaluateUpsideOpportunities(
       startIndex: index,
       startTime: current.time,
       startPrice: current.close,
-      horizon: UPSIDE_OPPORTUNITY_HORIZON,
+      horizon: opportunity.horizon,
       forwardReturn: round(forwardReturn),
       covered: Boolean(signal),
       signalId: signal?.id,
@@ -697,6 +783,53 @@ function buildOpportunityCoverage(
       coverageRate: selected.length ? round(coveredCount / selected.length) : null,
     };
   }));
+}
+
+function buildVariantOpportunityCoverage(
+  datasets: readonly ChanValidationDataset[],
+  reports: readonly ChanDatasetValidationReport[],
+  options: ChanBacktestOptions
+): ChanVariantOpportunityCoverage[] {
+  return CHAN_SIGNAL_VARIANTS.flatMap((variant) => {
+    const opportunities = datasets.flatMap((dataset, index) => {
+      const replay = reports[index].replay;
+      return evaluateUpsideOpportunities(
+        dataset,
+        replay,
+        options,
+        replay.ruleSignals.filter((signal) => signal.variant === variant)
+      );
+    });
+    return buildOpportunityCoverage(opportunities).map((coverage) => ({
+      ...coverage,
+      variant,
+    }));
+  });
+}
+
+function buildOpportunitySensitivity(
+  datasets: readonly ChanValidationDataset[],
+  reports: readonly ChanDatasetValidationReport[],
+  options: ChanBacktestOptions
+): ChanOpportunitySensitivity[] {
+  return OPPORTUNITY_THRESHOLD_ADJUSTMENTS.flatMap((thresholdAdjustment) =>
+    OPPORTUNITY_SIGNAL_WINDOWS.map((signalWindow) => {
+      const opportunities = datasets.flatMap((dataset, index) =>
+        evaluateUpsideOpportunities(
+          dataset,
+          reports[index].replay,
+          options,
+          reports[index].replay.signals,
+          { thresholdAdjustment, signalWindow }
+        )
+      );
+      return {
+        thresholdAdjustment,
+        signalWindow,
+        coverage: buildOpportunityCoverage(opportunities),
+      };
+    })
+  );
 }
 
 function buildMetricSlices(
@@ -804,12 +937,16 @@ function buildRuleDiagnostics(
 
 function buyAndHoldReturn(
   points: readonly StockChartPoint[],
+  assetType: ChanAssetType,
   options: ChanBacktestOptions
 ): number {
   const slippage = options.slippageBps / 10000;
   const entry = points[0].open * (1 + slippage);
   const exit = points[points.length - 1].close * (1 - slippage);
-  return round(exit / entry - 1 - options.feeBps * 2 / 10000);
+  const sellTaxBps = assetType === 'stock' || assetType === 'unknown'
+    ? options.sellTaxBps
+    : 0;
+  return round(exit / entry - 1 - (options.feeBps * 2 + sellTaxBps) / 10000);
 }
 
 export function runChanValidation(
@@ -820,25 +957,30 @@ export function runChanValidation(
   const normalized = normalizeChanBacktestOptions(options);
   const reports = datasets.map((dataset) => {
     if (!dataset.points.length) throw new Error(`${dataset.symbol} 的行情数据为空`);
+    const assetType = dataset.assetType ?? inferChanAssetType(dataset.symbol);
     const replay = replayChanAnalysis(dataset.points, dataset.period);
     const trades = evaluateChanSignals(dataset, replay, normalized);
+    const ruleTrades = evaluateChanSignals(dataset, replay, normalized, replay.ruleSignals);
     const upsideOpportunities = evaluateUpsideOpportunities(dataset, replay, normalized);
     return {
       symbol: dataset.symbol,
       period: dataset.period,
+      assetType,
       source: dataset.source,
       barCount: dataset.points.length,
       firstTime: dataset.points[0].time,
       lastTime: dataset.points[dataset.points.length - 1].time,
-      buyAndHoldNetReturn: buyAndHoldReturn(dataset.points, normalized),
+      buyAndHoldNetReturn: buyAndHoldReturn(dataset.points, assetType, normalized),
       replay,
       trades,
+      ruleTrades,
       metrics: buildChanMetrics(trades, normalized.horizons),
-      variantMetrics: buildVariantMetrics(trades, normalized.horizons),
+      variantMetrics: buildVariantMetrics(ruleTrades, normalized.horizons),
       upsideOpportunities,
     };
   });
   const aggregateTrades = reports.flatMap((report) => report.trades);
+  const aggregateRuleTrades = reports.flatMap((report) => report.ruleTrades);
   const aggregateOpportunities = reports.flatMap((report) => report.upsideOpportunities);
   return {
     schemaVersion: CHAN_VALIDATION_SCHEMA_VERSION,
@@ -848,11 +990,17 @@ export function runChanValidation(
       datasetCount: reports.length,
       barCount: reports.reduce((total, report) => total + report.barCount, 0),
       signalCount: reports.reduce((total, report) => total + report.replay.signals.length, 0),
+      ruleSignalCount: reports.reduce(
+        (total, report) => total + report.replay.ruleSignals.length,
+        0
+      ),
       stabilityViolationCount: reports.reduce(
         (total, report) => total + report.replay.stabilityViolations.length,
         0
       ),
       tradeEvaluationCount: aggregateTrades.length,
+      ruleTradeEvaluationCount: aggregateRuleTrades.length,
+      executableTradeEvaluationCount: aggregateTrades.filter((trade) => trade.executable).length,
       developmentTradeEvaluationCount: aggregateTrades.filter(
         (trade) => trade.sample === 'development'
       ).length,
@@ -865,9 +1013,11 @@ export function runChanValidation(
       ).length,
     },
     metrics: buildChanMetrics(aggregateTrades, normalized.horizons),
-    variantMetrics: buildVariantMetrics(aggregateTrades, normalized.horizons),
+    variantMetrics: buildVariantMetrics(aggregateRuleTrades, normalized.horizons),
     metricSlices: buildMetricSlices(aggregateTrades, normalized.horizons),
     opportunityCoverage: buildOpportunityCoverage(aggregateOpportunities),
+    variantOpportunityCoverage: buildVariantOpportunityCoverage(datasets, reports, normalized),
+    opportunitySensitivity: buildOpportunitySensitivity(datasets, reports, normalized),
     ruleDiagnostics: buildRuleDiagnostics(aggregateTrades, normalized.horizons),
     datasets: reports,
   };

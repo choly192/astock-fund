@@ -3,7 +3,11 @@ import * as path from 'path';
 import { getWithRetry } from '../shared/httpClient';
 import { StockChartPoint } from '../shared/stockChartProtocol';
 import { getTencentChartCode, parseTencentKlineResponse } from '../shared/tencentStockChart';
-import { ChanValidationDataset, ChanValidationPeriod } from './validation';
+import {
+  ChanValidationDataset,
+  ChanValidationPeriod,
+  inferChanAssetType,
+} from './validation';
 
 const DEFAULT_SYMBOLS = [
   'sh000001', 'sh000300', 'sz399006',
@@ -132,6 +136,7 @@ async function fetchDataset(
   return {
     symbol,
     period,
+    assetType: inferChanAssetType(symbol),
     source: intraday ? 'Tencent unadjusted minute K-line' : 'Tencent backward-adjusted K-line',
     points,
   };

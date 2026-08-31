@@ -1,6 +1,10 @@
 import { StockChartPeriod, StockChartPoint } from '../shared/stockChartProtocol';
+import {
+  classifyMarketRegime,
+  DEFAULT_CHAN_MARKET_REGIME_OPTIONS,
+} from './marketRegime';
 
-export const CHAN_ALGORITHM_VERSION = '1.0.4';
+export const CHAN_ALGORITHM_VERSION = '1.0.5';
 
 export type ChanDirection = 'up' | 'down';
 export type ChanFractalType = 'top' | 'bottom';
@@ -82,6 +86,7 @@ export interface ChanAnalysis {
   stableStrokeCount: number;
   segments: ChanSegment[];
   centers: ChanCenter[];
+  signalMatches: ChanSignal[];
   signals: ChanSignal[];
 }
 
@@ -340,42 +345,6 @@ interface StableLocalPivot {
   price: number;
 }
 
-type LocalSignalRegime = 'bull' | 'bear' | 'sideways';
-
-const LOCAL_REGIME_MA_BARS = 60;
-const LOCAL_REGIME_SLOPE_BARS = 20;
-const LOCAL_REGIME_THRESHOLD = 0.005;
-
-function trailingMovingAverage(
-  points: readonly StockChartPoint[],
-  index: number,
-  bars: number
-): number | undefined {
-  const start = index - bars + 1;
-  if (start < 0) return undefined;
-  let total = 0;
-  for (let cursor = start; cursor <= index; cursor += 1) total += points[cursor].close;
-  return total / bars;
-}
-
-function classifyLocalSignalRegime(
-  points: readonly StockChartPoint[],
-  availableIndex: number
-): LocalSignalRegime {
-  const currentMa = trailingMovingAverage(points, availableIndex, LOCAL_REGIME_MA_BARS);
-  const previousMa = trailingMovingAverage(
-    points,
-    availableIndex - LOCAL_REGIME_SLOPE_BARS,
-    LOCAL_REGIME_MA_BARS
-  );
-  if (currentMa === undefined || previousMa === undefined || previousMa === 0) return 'sideways';
-  const closeDistance = points[availableIndex].close / currentMa - 1;
-  const slope = currentMa / previousMa - 1;
-  if (closeDistance > LOCAL_REGIME_THRESHOLD && slope > LOCAL_REGIME_THRESHOLD) return 'bull';
-  if (closeDistance < -LOCAL_REGIME_THRESHOLD && slope < -LOCAL_REGIME_THRESHOLD) return 'bear';
-  return 'sideways';
-}
-
 function detectStableLocalPivots(points: readonly StockChartPoint[]): StableLocalPivot[] {
   const pivots: StableLocalPivot[] = [];
   for (let index = 2; index < points.length - 2; index += 1) {
@@ -426,7 +395,11 @@ function detectLocalDivergenceSignals(
     const meaningfulAmplitude = currentAmplitude >= previousAmplitude * MIN_DIVERGENCE_AMPLITUDE_RATIO;
     if (current.type !== 'bottom') return;
     const confirmedIndex = current.index + 2;
-    const regime = classifyLocalSignalRegime(points, confirmedIndex);
+    const regime = classifyMarketRegime(
+      points,
+      confirmedIndex,
+      DEFAULT_CHAN_MARKET_REGIME_OPTIONS
+    );
     if (regime !== 'bear'
       && weaker
       && meaningfulAmplitude
@@ -472,7 +445,7 @@ function detectLocalDivergenceSignals(
   return signals;
 }
 
-export function detectChanSignals(
+export function detectChanSignalMatches(
   strokes: readonly ChanStroke[],
   centers: readonly ChanCenter[],
   points?: readonly StockChartPoint[],
@@ -574,14 +547,28 @@ export function detectChanSignals(
     }
   });
 
+  return [...signals, ...localDivergences]
+    .sort((left, right) => left.confirmedIndex - right.confirmedIndex || left.level - right.level);
+}
+
+function deduplicateChanSignalMatches(signalMatches: readonly ChanSignal[]): ChanSignal[] {
   const deduplicated = new Map<string, ChanSignal>();
-  [...signals, ...localDivergences].forEach((signal) => {
+  signalMatches.forEach((signal) => {
     const key = `${signal.time}:${signal.side}:${signal.level}`;
     const current = deduplicated.get(key);
     if (!current || signal.confirmedIndex < current.confirmedIndex) deduplicated.set(key, signal);
   });
   return [...deduplicated.values()]
     .sort((left, right) => left.confirmedIndex - right.confirmedIndex || left.level - right.level);
+}
+
+export function detectChanSignals(
+  strokes: readonly ChanStroke[],
+  centers: readonly ChanCenter[],
+  points?: readonly StockChartPoint[],
+  period?: StockChartPeriod
+): ChanSignal[] {
+  return deduplicateChanSignalMatches(detectChanSignalMatches(strokes, centers, points, period));
 }
 
 export function analyzeChan(
@@ -593,6 +580,7 @@ export function analyzeChan(
   const strokes = buildChanStrokes(fractals);
   const stableStrokes = strokes.length > 1 ? strokes.slice(0, -1) : [];
   const centers = findChanCenters(stableStrokes);
+  const signalMatches = detectChanSignalMatches(strokes, centers, points, options.period);
   return {
     algorithmVersion: CHAN_ALGORITHM_VERSION,
     mergedBars,
@@ -601,6 +589,7 @@ export function analyzeChan(
     stableStrokeCount: stableStrokes.length,
     segments: buildChanSegments(stableStrokes),
     centers,
-    signals: detectChanSignals(strokes, centers, points, options.period),
+    signalMatches,
+    signals: deduplicateChanSignalMatches(signalMatches),
   };
 }

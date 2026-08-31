@@ -3,6 +3,7 @@ import {
   analyzeChan,
   buildChanStrokes,
   ChanFractal,
+  detectChanSignalMatches,
   detectChanFractals,
   detectChanSignals,
   findChanCenters,
@@ -152,6 +153,32 @@ suite('Chan analysis', () => {
       .map((value, index) => point(index, value + 0.1, value - 0.1, value));
     assert.ok(!analyzeChan(bearDivergence, { period: 'week' }).signals
       .some((signal) => signal.variant === 'local-divergence'));
+  });
+
+  test('keeps every matching rule before display-level event deduplication', () => {
+    const points = [10, 11, 12, 11, 10, 8, 9, 10, 11, 10, 9, 8.5, 8, 7.8, 8, 8.5]
+      .map((value, index) => point(index, value + 0.1, value - 0.1, value));
+    const fractals = [8, 12, 9, 11, 7, 9, 6.5, 10]
+      .map((price, index) => fractal(index % 2 === 0 ? 'bottom' : 'top', index, price));
+    fractals[6] = { ...fractals[6], time: 13 };
+    const strokes = buildChanStrokes(fractals);
+    const matches = detectChanSignalMatches(
+      strokes,
+      findChanCenters(strokes.slice(0, -1)),
+      points,
+      'week'
+    ).filter((signal) => signal.time === 13 && signal.side === 'buy' && signal.level === 1);
+
+    assert.deepStrictEqual(
+      matches.map((signal) => signal.variant).sort(),
+      ['local-divergence', 'standard']
+    );
+    assert.equal(detectChanSignals(
+      strokes,
+      findChanCenters(strokes.slice(0, -1)),
+      points,
+      'week'
+    ).filter((signal) => signal.time === 13).length, 1);
   });
 
   test('binds signals to the matching chart time', () => {

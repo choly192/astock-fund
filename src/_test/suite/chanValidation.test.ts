@@ -6,6 +6,8 @@ import { spawnSync } from 'child_process';
 import { analyzeChan } from '../../chan/engine';
 import {
   classifyMarketRegime,
+  evaluateChanSignals,
+  inferChanAssetType,
   parseChanValidationDatasets,
   replayChanAnalysis,
   runChanValidation,
@@ -65,6 +67,7 @@ suite('Chan algorithm validation', () => {
       replay.signals.map(({ side, level }) => ({ side, level })),
       [{ side: 'buy', level: 1 }, { side: 'buy', level: 2 }]
     );
+    assert.ok(replay.ruleSignals.length >= replay.signals.length);
     replay.signals.forEach((signal) => {
       assert.equal(signal.firstSeenIndex, signal.confirmedIndex);
       assert.equal(signal.confirmationLagBars, 0);
@@ -86,6 +89,7 @@ suite('Chan algorithm validation', () => {
     }], {
       horizons: [1, 5],
       feeBps: 3,
+      sellTaxBps: 5,
       slippageBps: 2,
     });
 
@@ -93,18 +97,26 @@ suite('Chan algorithm validation', () => {
     assert.equal(report.summary.signalCount, 2);
     assert.equal(report.summary.stabilityViolationCount, 0);
     assert.equal(report.summary.tradeEvaluationCount, 4);
+    assert.ok(report.summary.ruleSignalCount >= report.summary.signalCount);
+    assert.ok(report.summary.ruleTradeEvaluationCount >= report.summary.tradeEvaluationCount);
     assert.ok(Array.isArray(report.variantMetrics));
     assert.ok(Array.isArray(report.opportunityCoverage));
+    assert.ok(Array.isArray(report.variantOpportunityCoverage));
+    assert.equal(report.opportunitySensitivity.length, 9);
     report.datasets[0].trades.forEach((trade) => {
       assert.equal(trade.entryIndex, trade.availableIndex + 1);
       assert.equal(trade.sample, 'development');
       assert.ok(trade.netReturn < trade.grossReturn);
+      assert.equal(trade.returnMode, 'long');
+      assert.equal(trade.roundTripCostBps, 11);
       assert.ok(trade.mfe >= trade.mae);
     });
     const overall = report.metrics.find((metric) =>
       metric.group === 'all' && metric.horizon === 5
     );
     assert.equal(overall?.tradeCount, 2);
+    assert.equal(typeof overall?.sequentialSignalDrawdown, 'number');
+    assert.equal(typeof overall?.worstDatasetSignalDrawdown, 'number');
     assert.ok(report.metricSlices.some((metric) =>
       metric.sample === 'development' && metric.group === 'buy:1'
     ));
@@ -113,6 +125,44 @@ suite('Chan algorithm validation', () => {
       assert.ok(Array.isArray(diagnostic.draggingPeriods));
       assert.ok(Array.isArray(diagnostic.draggingRegimes));
     });
+  });
+
+  test('treats sell signals as non-executable downside follow-through', () => {
+    const points = validationPoints();
+    const signal = {
+      algorithmVersion: 'test',
+      id: 'sell-signal',
+      side: 'sell' as const,
+      level: 1 as const,
+      variant: 'standard' as const,
+      time: points[1].time,
+      price: points[1].close,
+      strokeIndex: 1,
+      confirmedIndex: 1,
+      confirmedTime: points[1].time,
+      reason: '测试卖点',
+      firstSeenIndex: 1,
+      firstSeenTime: points[1].time,
+      confirmationLagBars: 0,
+    };
+    const trades = evaluateChanSignals({
+      symbol: 'sh600000',
+      period: 'day',
+      assetType: 'stock',
+      points,
+    }, {
+      algorithmVersion: 'test',
+      barCount: points.length,
+      signals: [signal],
+      ruleSignals: [signal],
+      stabilityViolations: [],
+    }, { horizons: [1] });
+
+    assert.equal(trades.length, 1);
+    assert.equal(trades[0].returnMode, 'downside-follow-through');
+    assert.equal(trades[0].executable, false);
+    assert.equal(trades[0].roundTripCostBps, 0);
+    assert.equal(trades[0].netReturn, trades[0].grossReturn);
   });
 
   test('classifies regimes with trailing data only', () => {
@@ -154,6 +204,14 @@ suite('Chan algorithm validation', () => {
       period: 'day',
       points: [{ ...points[0], high: points[0].low - 1 }],
     }), /OHLC 不一致/);
+    assert.throws(() => parseChanValidationDatasets({
+      symbol: 'fixture',
+      period: 'day',
+      assetType: 'crypto',
+      points,
+    }), /不是支持的资产类型/);
+    assert.equal(inferChanAssetType('sh000300'), 'index');
+    assert.equal(inferChanAssetType('sz000001'), 'stock');
   });
 
   test('produces a deterministic JSON report through the CLI', () => {
@@ -171,6 +229,7 @@ suite('Chan algorithm validation', () => {
         '--horizons', '1,5',
         '--fee-bps', '3',
         '--slippage-bps', '2',
+        '--sell-tax-bps', '5',
       ];
       const first = spawnSync(process.execPath, [...args, '--output', firstOutput], {
         cwd: projectRoot,
@@ -184,7 +243,7 @@ suite('Chan algorithm validation', () => {
       assert.equal(second.status, 0, second.stderr);
       assert.equal(fs.readFileSync(firstOutput, 'utf8'), fs.readFileSync(secondOutput, 'utf8'));
       const report = JSON.parse(fs.readFileSync(firstOutput, 'utf8'));
-      assert.equal(report.schemaVersion, '1.2.0');
+      assert.equal(report.schemaVersion, '1.3.0');
       assert.equal(report.summary.signalCount, 2);
       const positional = spawnSync(process.execPath, [
         validationCli,
@@ -193,6 +252,7 @@ suite('Chan algorithm validation', () => {
         '1,5',
         '3',
         '2',
+        '5',
       ], {
         cwd: projectRoot,
         encoding: 'utf8',

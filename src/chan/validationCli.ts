@@ -14,7 +14,7 @@ interface CliOptions extends Partial<ChanBacktestOptions> {
 function usage(): string {
   return [
     'Usage:',
-    '  npm run validate:chan -- <input.json> [output.json] [horizons] [fee-bps] [slippage-bps]',
+    '  npm run validate:chan -- <input.json> [output.json] [horizons] [fee-bps] [slippage-bps] [sell-tax-bps]',
     '  node out/chan/validationCli.js --input <data.json> [options]',
     '',
     'Options:',
@@ -22,6 +22,7 @@ function usage(): string {
     '  --horizons <5,10,20>         持有 K 线数量',
     '  --fee-bps <3>                单边手续费（基点）',
     '  --slippage-bps <2>           单边滑点（基点）',
+    '  --sell-tax-bps <5>           股票卖出印花税（基点）',
     '  --development-ratio <0.7>    按时间划分开发集的比例',
     '  --regime-ma-bars <60>        市场状态均线窗口',
     '  --regime-slope-bars <20>     市场状态均线斜率间隔',
@@ -37,7 +38,9 @@ function readValue(args: readonly string[], index: number, flag: string): string
 
 export function parseCliOptions(args: readonly string[]): CliOptions {
   if (args.length && !args[0].startsWith('--')) {
-    const [inputPath, rawOutputPath, rawHorizons, rawFeeBps, rawSlippageBps, ...rest] = args;
+    const [
+      inputPath, rawOutputPath, rawHorizons, rawFeeBps, rawSlippageBps, rawSellTaxBps, ...rest
+    ] = args;
     if (rest.length) throw new Error(`位置参数过多\n${usage()}`);
     return {
       inputPath,
@@ -45,6 +48,7 @@ export function parseCliOptions(args: readonly string[]): CliOptions {
       horizons: rawHorizons ? rawHorizons.split(',').map(Number) : undefined,
       feeBps: rawFeeBps === undefined ? undefined : Number(rawFeeBps),
       slippageBps: rawSlippageBps === undefined ? undefined : Number(rawSlippageBps),
+      sellTaxBps: rawSellTaxBps === undefined ? undefined : Number(rawSellTaxBps),
     };
   }
   let inputPath: string | undefined;
@@ -52,6 +56,7 @@ export function parseCliOptions(args: readonly string[]): CliOptions {
   let horizons: number[] | undefined;
   let feeBps: number | undefined;
   let slippageBps: number | undefined;
+  let sellTaxBps: number | undefined;
   let developmentRatio: number | undefined;
   let regimeMaBars: number | undefined;
   let regimeSlopeBars: number | undefined;
@@ -67,6 +72,7 @@ export function parseCliOptions(args: readonly string[]): CliOptions {
     else if (flag === '--horizons') horizons = value.split(',').map(Number);
     else if (flag === '--fee-bps') feeBps = Number(value);
     else if (flag === '--slippage-bps') slippageBps = Number(value);
+    else if (flag === '--sell-tax-bps') sellTaxBps = Number(value);
     else if (flag === '--development-ratio') developmentRatio = Number(value);
     else if (flag === '--regime-ma-bars') regimeMaBars = Number(value);
     else if (flag === '--regime-slope-bars') regimeSlopeBars = Number(value);
@@ -80,6 +86,7 @@ export function parseCliOptions(args: readonly string[]): CliOptions {
     horizons,
     feeBps,
     slippageBps,
+    sellTaxBps,
     developmentRatio,
     regimeMaBars,
     regimeSlopeBars,
@@ -96,6 +103,7 @@ export function runCli(args: readonly string[]): void {
     horizons: options.horizons,
     feeBps: options.feeBps,
     slippageBps: options.slippageBps,
+    sellTaxBps: options.sellTaxBps,
     developmentRatio: options.developmentRatio,
     regimeMaBars: options.regimeMaBars,
     regimeSlopeBars: options.regimeSlopeBars,
