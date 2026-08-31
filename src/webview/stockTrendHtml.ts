@@ -51,12 +51,21 @@ export function getStockTrendHtml(
     .stats dd { margin: 0; overflow: hidden; color: #c8cbd0; font: 11px var(--vscode-editor-font-family, Consolas, monospace); text-overflow: ellipsis; white-space: nowrap; }
     .external { align-self: start; color: #9ca1aa; font-size: 12px; text-decoration: none; white-space: nowrap; }
     .external:hover { color: #fff; text-decoration: underline; }
-    .periods { display: flex; align-items: stretch; min-width: 0; padding: 0 10px; overflow-x: auto; border-bottom: 1px solid #24272d; background: #101216; scrollbar-width: none; }
+    .chart-toolbar { display: flex; min-width: 0; border-bottom: 1px solid #24272d; background: #101216; }
+    .periods { display: flex; flex: 1 1 auto; align-items: stretch; min-width: 0; padding: 0 10px; overflow-x: auto; scrollbar-width: none; }
     .periods::-webkit-scrollbar { display: none; }
     .period-tab { position: relative; flex: 0 0 auto; min-width: 58px; padding: 0 11px; border: 0; color: #898e97; background: transparent; cursor: pointer; }
     .period-tab:hover, .period-tab.active { color: #f1f2f4; }
     .period-tab:focus-visible { outline: 1px solid #ee4b5a; outline-offset: -3px; }
     .period-tab.active::after { position: absolute; right: 12px; bottom: 0; left: 12px; height: 2px; background: #ee4b5a; content: ""; }
+    .chan-toggle { position: relative; display: flex; flex: 0 0 auto; align-items: center; gap: 7px; padding: 0 13px; border-left: 1px solid #24272d; color: #8f949d; font-size: 11px; cursor: pointer; user-select: none; }
+    .chan-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .toggle-track { position: relative; width: 28px; height: 15px; border: 1px solid #4b5059; border-radius: 8px; background: #25282e; transition: border-color .16s ease, background .16s ease; }
+    .toggle-track::after { position: absolute; top: 2px; left: 2px; width: 9px; height: 9px; border-radius: 50%; background: #878c95; content: ""; transition: transform .16s ease, background .16s ease; }
+    .chan-toggle input:checked + .toggle-track { border-color: #b0414c; background: #642a31; }
+    .chan-toggle input:checked + .toggle-track::after { background: #f1b0b7; transform: translateX(13px); }
+    .chan-toggle input:focus-visible + .toggle-track { outline: 1px solid #ee4b5a; outline-offset: 2px; }
+    .chan-toggle input:disabled + .toggle-track, .chan-toggle input:disabled ~ span:last-child { opacity: .38; }
     .chart-wrap { position: relative; min-height: 0; background: #0b0d10; }
     .chart { position: absolute; inset: 0; }
     .loading { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; color: #777d87; background: #0b0d10; font-size: 12px; }
@@ -99,16 +108,23 @@ export function getStockTrendHtml(
       </dl>
       <a class="external" href="${safeUrl}" title="在系统浏览器中打开东方财富行情">浏览器打开</a>
     </header>
-    <nav class="periods" role="tablist" aria-label="行情周期">
-      <button class="period-tab active" role="tab" aria-selected="true" data-period="trend">分时</button>
-      <button class="period-tab" role="tab" aria-selected="false" data-period="day">日 K</button>
-      <button class="period-tab" role="tab" aria-selected="false" data-period="week">周 K</button>
-      <button class="period-tab" role="tab" aria-selected="false" data-period="month">月 K</button>
-      <button class="period-tab" role="tab" aria-selected="false" data-period="5m">5 分</button>
-      <button class="period-tab" role="tab" aria-selected="false" data-period="15m">15 分</button>
-      <button class="period-tab" role="tab" aria-selected="false" data-period="30m">30 分</button>
-      <button class="period-tab" role="tab" aria-selected="false" data-period="60m">60 分</button>
-    </nav>
+    <div class="chart-toolbar">
+      <nav class="periods" role="tablist" aria-label="行情周期">
+        <button class="period-tab active" role="tab" aria-selected="true" data-period="trend">分时</button>
+        <button class="period-tab" role="tab" aria-selected="false" data-period="day">日 K</button>
+        <button class="period-tab" role="tab" aria-selected="false" data-period="week">周 K</button>
+        <button class="period-tab" role="tab" aria-selected="false" data-period="month">月 K</button>
+        <button class="period-tab" role="tab" aria-selected="false" data-period="5m">5 分</button>
+        <button class="period-tab" role="tab" aria-selected="false" data-period="15m">15 分</button>
+        <button class="period-tab" role="tab" aria-selected="false" data-period="30m">30 分</button>
+        <button class="period-tab" role="tab" aria-selected="false" data-period="60m">60 分</button>
+      </nav>
+      <label class="chan-toggle" title="显示或隐藏缠论买卖点">
+        <input type="checkbox" role="switch" aria-label="显示缠论信号" checked>
+        <span class="toggle-track" aria-hidden="true"></span>
+        <span>缠论</span>
+      </label>
+    </div>
     <section class="chart-wrap">
       <div class="legend" aria-live="polite"></div>
       <div class="ma-legend" aria-label="移动平均线"></div>

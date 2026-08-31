@@ -1,51 +1,122 @@
 import {
+  CandlestickSeries,
   ColorType,
   createChart,
   CrosshairMode,
+  HistogramSeries,
   HistogramData,
+  LineSeries,
   LineStyle,
   Time,
 } from 'lightweight-charts';
+import { analyzeChan, ChanSignal } from '../chan/engine';
+import { buildChanSignalSeriesData } from '../chan/seriesData';
 import {
   StockChartData,
   StockChartPeriod,
   StockChartRequestMessage,
   StockChartResponseMessage,
 } from '../shared/stockChartProtocol';
+import { ChanSignalPaneView } from './chanSignalSeries';
 import { calculateMovingAverage } from './movingAverage';
 
-declare function acquireVsCodeApi(): { postMessage(message: StockChartRequestMessage): void };
+interface ChartWebviewState {
+  chanSignalsVisible?: boolean;
+}
+
+interface ChartVsCodeApi {
+  postMessage(message: StockChartRequestMessage): void;
+  getState(): ChartWebviewState | undefined;
+  setState(state: ChartWebviewState): void;
+}
+
+declare function acquireVsCodeApi(): ChartVsCodeApi;
 
 function createPreviewData(period: StockChartPeriod): StockChartData {
-  const intraday = period === 'trend' || period.endsWith('m');
-  const start = Math.floor(Date.now() / 1000) - 120 * (intraday ? 60 : 24 * 60 * 60);
+  if (period !== 'trend') {
+    const anchorSets: Partial<Record<StockChartPeriod, number[]>> = {
+      day: [10, 8, 12, 9, 11, 7, 9, 6.5, 10, 7.2, 10.5, 9],
+      week: [10, 12, 8, 11, 9, 13, 11.5, 14, 12],
+      month: [10, 8, 12, 9, 11, 7, 8.5, 6, 8],
+    };
+    const anchors = (anchorSets[period] ?? anchorSets.day!)
+      .map((value) => 100 + (value - 10) * 2);
+    const values: number[] = [];
+    for (let segment = 0; segment < anchors.length - 1; segment += 1) {
+      for (let offset = 0; offset < 4; offset += 1) {
+        values.push(anchors[segment] + (anchors[segment + 1] - anchors[segment]) * offset / 4);
+      }
+    }
+    values.push(anchors[anchors.length - 1]);
+    while (values.length < 120) values.push(values[values.length - 1] - 0.006);
+
+    const minuteSteps: Partial<Record<StockChartPeriod, number>> = {
+      '5m': 5,
+      '15m': 15,
+      '30m': 30,
+      '60m': 60,
+    };
+    const calendarSteps: Partial<Record<StockChartPeriod, number>> = {
+      day: 24 * 60,
+      week: 7 * 24 * 60,
+      month: 30 * 24 * 60,
+    };
+    const stepSeconds = (minuteSteps[period] ?? calendarSteps[period] ?? 24 * 60) * 60;
+    const start = Math.floor(Date.now() / 1000) - values.length * stepSeconds;
+    return {
+      period,
+      kind: 'candlestick',
+      points: values.map((value, index) => {
+        const rising = index % 3 !== 1;
+        const timestamp = start + index * stepSeconds;
+        return {
+          time: period.endsWith('m')
+            ? timestamp
+            : new Date(timestamp * 1000).toISOString().slice(0, 10),
+          open: value + (rising ? -0.08 : 0.08),
+          high: value + 0.35,
+          low: value - 0.35,
+          close: value + (rising ? 0.08 : -0.08),
+          volume: 50000 + (index % 17) * 8000,
+        };
+      }),
+      previousClose: 100,
+    };
+  }
+
+  const start = Math.floor(Date.now() / 1000) - 120 * 60;
   const points = Array.from({ length: 120 }, (_item, index) => {
     const base = 100 + Math.sin(index / 10) * 3 + index * 0.015;
     const open = base + Math.sin(index * 1.7) * 0.5;
     const close = base + Math.cos(index * 1.3) * 0.5;
-    const timestamp = start + index * (intraday ? 60 : 24 * 60 * 60);
+    const timestamp = start + index * 60;
     return {
-      time: intraday ? timestamp : new Date(timestamp * 1000).toISOString().slice(0, 10),
+      time: timestamp,
       open,
       high: Math.max(open, close) + 0.7,
       low: Math.min(open, close) - 0.7,
       close,
       volume: 50000 + (index % 17) * 8000,
-      average: period === 'trend' ? 100 + Math.sin(index / 14) * 1.5 : undefined,
+      average: 100 + Math.sin(index / 14) * 1.5,
     };
   });
   return {
     period,
-    kind: period === 'trend' ? 'line' : 'candlestick',
+    kind: 'line',
     points,
     previousClose: 100,
   };
 }
 
-const vscode =
+let previewState: ChartWebviewState = {};
+const vscode: ChartVsCodeApi =
   typeof acquireVsCodeApi === 'function'
     ? acquireVsCodeApi()
     : {
+        getState: () => previewState,
+        setState: (state: ChartWebviewState) => {
+          previewState = state;
+        },
         postMessage(message: StockChartRequestMessage) {
           window.setTimeout(
             () =>
@@ -74,6 +145,7 @@ const headline = document.querySelector<HTMLElement>('.headline')!;
 const priceElement = document.querySelector<HTMLElement>('.price')!;
 const percentElement = document.querySelector<HTMLElement>('.percent')!;
 const quoteTimeElement = document.querySelector<HTMLElement>('.quote-time')!;
+const chanToggle = document.querySelector<HTMLInputElement>('.chan-toggle input')!;
 const statElements = {
   open: document.querySelector<HTMLElement>('[data-stat="open"]')!,
   high: document.querySelector<HTMLElement>('[data-stat="high"]')!,
@@ -111,7 +183,7 @@ const chart = createChart(container, {
   crosshair: { mode: CrosshairMode.Normal },
   rightPriceScale: {
     borderColor: '#2b2e34',
-    scaleMargins: { top: 0.08, bottom: 0.24 },
+    scaleMargins: { top: 0.08, bottom: 0.08 },
   },
   timeScale: {
     borderColor: '#2b2e34',
@@ -129,6 +201,9 @@ let averageSeries: any;
 const movingAverageSeries = new Map<number, any>();
 const latestMovingAverageValues = new Map<number, number>();
 let volumeSeries: any;
+let chanSignalSeries: any;
+let latestChartData: StockChartData | undefined;
+let chanSignalsVisible = vscode.getState()?.chanSignalsVisible !== false;
 let renderedPeriod: StockChartPeriod | undefined;
 let renderedKind: StockChartData['kind'] | undefined;
 let latestValue: { time: Time; price: number } | undefined;
@@ -139,7 +214,7 @@ let requestPending = false;
 let requestStartedAt = 0;
 
 function clearSeries(): void {
-  [mainSeries, averageSeries, volumeSeries, ...movingAverageSeries.values()]
+  [chanSignalSeries, volumeSeries, ...movingAverageSeries.values(), averageSeries, mainSeries]
     .filter(Boolean).forEach((series) => {
       chart.removeSeries(series);
     });
@@ -148,12 +223,61 @@ function clearSeries(): void {
   movingAverageSeries.clear();
   latestMovingAverageValues.clear();
   volumeSeries = undefined;
+  chanSignalSeries = undefined;
+  latestChartData = undefined;
   renderedPeriod = undefined;
   renderedKind = undefined;
   latestValue = undefined;
   latestPoint.classList.remove('visible', 'live');
   legend.textContent = '';
   movingAverageLegend.replaceChildren();
+}
+
+function syncChanToggle(period: StockChartPeriod): void {
+  chanToggle.checked = chanSignalsVisible;
+  chanToggle.disabled = period === 'trend';
+}
+
+function removeChanSignalPane(): void {
+  if (!chanSignalSeries) return;
+  chart.removeSeries(chanSignalSeries);
+  chanSignalSeries = undefined;
+}
+
+function renderChanSignalPane(data: StockChartData): void {
+  if (data.kind !== 'candlestick' || !chanSignalsVisible) {
+    removeChanSignalPane();
+    return;
+  }
+  const analysis = analyzeChan(data.points, { period: data.period });
+  if (!chanSignalSeries) {
+    chanSignalSeries = chart.addCustomSeries(
+      new ChanSignalPaneView(),
+      {
+        priceScaleId: 'chan-signal',
+        lastValueVisible: false,
+        priceLineVisible: false,
+      },
+      2
+    );
+    chanSignalSeries.priceScale().applyOptions({
+      visible: false,
+      scaleMargins: { top: 0.08, bottom: 0.08 },
+    });
+    chanSignalSeries.getPane().setHeight(66);
+  }
+  chanSignalSeries.setData(buildChanSignalSeriesData(data.points, analysis.signals));
+}
+
+function formatChanSignals(signals: readonly ChanSignal[]): string {
+  return signals.map((signal) => `${signal.level}${signal.side === 'buy' ? '买' : '卖'}`).join('/');
+}
+
+function formatChanSignalDetails(signals: readonly ChanSignal[]): string {
+  return signals.map((signal) =>
+    `${signal.level}${signal.side === 'buy' ? '买' : '卖'}：${signal.reason}；`
+    + `确认于 ${formatChartTime(signal.confirmedTime as Time)}`
+  ).join('\n');
 }
 
 function renderMovingAverageLegend(values: ReadonlyMap<number, number>): void {
@@ -237,7 +361,7 @@ function render(data: StockChartData, marketOpen = true): void {
   const downColor = '#16a36d';
   if (data.kind === 'line') {
     if (!mainSeries) {
-      mainSeries = chart.addLineSeries({
+      mainSeries = chart.addSeries(LineSeries, {
         color: '#9f9f9f',
         lineWidth: 2,
         priceLineVisible: false,
@@ -253,7 +377,7 @@ function render(data: StockChartData, marketOpen = true): void {
     const averagePoints = data.points.filter((point) => point.average !== undefined);
     if (averagePoints.length) {
       if (!averageSeries) {
-        averageSeries = chart.addLineSeries({
+        averageSeries = chart.addSeries(LineSeries, {
           color: '#c7b448',
           lineWidth: 1,
           priceLineVisible: false,
@@ -281,7 +405,7 @@ function render(data: StockChartData, marketOpen = true): void {
     }
   } else {
     if (!mainSeries) {
-      mainSeries = chart.addCandlestickSeries({
+      mainSeries = chart.addSeries(CandlestickSeries, {
         upColor,
         downColor,
         borderUpColor: upColor,
@@ -305,7 +429,7 @@ function render(data: StockChartData, marketOpen = true): void {
       const points = calculateMovingAverage(data.points, definition.period);
       let series = movingAverageSeries.get(definition.period);
       if (!series) {
-        series = chart.addLineSeries({
+        series = chart.addSeries(LineSeries, {
           color: definition.color,
           lineWidth: 1,
           priceLineVisible: false,
@@ -325,13 +449,17 @@ function render(data: StockChartData, marketOpen = true): void {
   }
 
   if (!volumeSeries) {
-    volumeSeries = chart.addHistogramSeries({
+    volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: 'volume' },
       priceScaleId: 'volume',
       priceLineVisible: false,
       lastValueVisible: false,
+    }, 1);
+    volumeSeries.priceScale().applyOptions({
+      visible: false,
+      scaleMargins: { top: 0.08, bottom: 0 },
     });
-    volumeSeries.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
+    volumeSeries.getPane().setHeight(104);
   }
   const volumes: HistogramData[] = data.points.map((point) => ({
     time: point.time as Time,
@@ -339,6 +467,8 @@ function render(data: StockChartData, marketOpen = true): void {
     color: point.close >= point.open ? 'rgba(238, 75, 90, .48)' : 'rgba(22, 163, 109, .48)',
   }));
   volumeSeries.setData(volumes);
+  renderChanSignalPane(data);
+  latestChartData = data;
   if (rebuild) chart.timeScale().fitContent();
   updateQuoteSummary(data);
   const last = data.points[data.points.length - 1];
@@ -370,6 +500,7 @@ function requestPeriod(period: StockChartPeriod, refresh = false): void {
     if (requestPending && Date.now() - requestStartedAt < REQUEST_TIMEOUT_MS) return;
   } else {
     currentPeriod = period;
+    syncChanToggle(period);
     tabs.forEach((tab) => {
       const selected = tab.dataset.period === period;
       tab.classList.toggle('active', selected);
@@ -395,6 +526,15 @@ tabs.forEach((tab) =>
     requestPeriod(tab.dataset.period as StockChartPeriod);
   })
 );
+
+chanToggle.addEventListener('change', () => {
+  chanSignalsVisible = chanToggle.checked;
+  vscode.setState({
+    ...vscode.getState(),
+    chanSignalsVisible,
+  });
+  if (latestChartData) renderChanSignalPane(latestChartData);
+});
 
 window.addEventListener('message', (event: MessageEvent<StockChartResponseMessage>) => {
   const message = event.data;
@@ -432,6 +572,7 @@ window.addEventListener('pagehide', stopRealtimePolling);
 chart.subscribeCrosshairMove((param) => {
   if (!param.time || !mainSeries) {
     legend.textContent = '';
+    legend.removeAttribute('title');
     renderMovingAverageLegend(latestMovingAverageValues);
     return;
   }
@@ -439,8 +580,17 @@ chart.subscribeCrosshairMove((param) => {
   if (!value) return;
   const volume: any = volumeSeries ? param.seriesData.get(volumeSeries) : undefined;
   const average: any = averageSeries ? param.seriesData.get(averageSeries) : undefined;
+  const chanData: any = chanSignalSeries ? param.seriesData.get(chanSignalSeries) : undefined;
   const time = formatChartTime(param.time as Time);
   const volumeText = volume?.value === undefined ? '' : `  量 ${formatCompactVolume(volume.value)}`;
+  const chanText = chanData?.signals?.length
+    ? `  缠 ${formatChanSignals(chanData.signals)}`
+    : '';
+  if (chanData?.signals?.length) {
+    legend.title = formatChanSignalDetails(chanData.signals);
+  } else {
+    legend.removeAttribute('title');
+  }
   if ('open' in value) {
     const movingAverageValues = new Map<number, number>();
     MOVING_AVERAGES.forEach((definition) => {
@@ -451,11 +601,12 @@ chart.subscribeCrosshairMove((param) => {
     renderMovingAverageLegend(movingAverageValues);
     legend.textContent = `${time}  开 ${value.open.toFixed(2)}  高 ${value.high.toFixed(
       2
-    )}  低 ${value.low.toFixed(2)}  收 ${value.close.toFixed(2)}${volumeText}`;
+    )}  低 ${value.low.toFixed(2)}  收 ${value.close.toFixed(2)}${volumeText}${chanText}`;
   } else {
     const averageText = average?.value === undefined ? '' : `  均价 ${average.value.toFixed(2)}`;
     legend.textContent = `${time}  价格 ${value.value.toFixed(2)}${averageText}${volumeText}`;
   }
 });
 
+syncChanToggle('trend');
 requestPeriod('trend');

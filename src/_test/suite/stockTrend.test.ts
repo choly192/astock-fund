@@ -44,6 +44,9 @@ suite('Stock trend webview', () => {
     assert.ok(html.includes('data-stat="volume"'));
     assert.ok(html.includes('class="quote-time"'));
     assert.ok(html.includes('class="ma-legend"'));
+    assert.ok(html.includes('class="chart-toolbar"'));
+    assert.ok(html.includes('class="chan-toggle"'));
+    assert.ok(html.includes('role="switch"'));
 
     const chartClient = fs.readFileSync(
       path.join(projectRoot, 'src', 'webview', 'stockChartClient.ts'),
@@ -57,6 +60,9 @@ suite('Stock trend webview', () => {
     assert.ok(chartClient.includes('均价'));
     assert.ok(chartClient.includes("label: 'MA60'"));
     assert.ok(chartClient.includes('calculateMovingAverage'));
+    assert.ok(chartClient.includes('chart.addCustomSeries'));
+    assert.ok(chartClient.includes('renderChanSignalPane'));
+    assert.ok(chartClient.includes("chanSignalsVisible"));
   });
 
   test('calculates moving averages from closing prices', () => {

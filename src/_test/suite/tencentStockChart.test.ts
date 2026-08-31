@@ -72,6 +72,17 @@ suite('Tencent stock chart parsing', () => {
     assert.equal(minute.points[0].close, 10.2);
   });
 
+  test('parses backward-adjusted K-lines for long-term validation', () => {
+    const result = parseTencentKlineResponse({
+      data: {
+        sh600519: {
+          hfqweek: [['2026-08-28', '1000', '1010', '1020', '990', '1200']],
+        },
+      },
+    }, 'sh600519', 'week', 'hfq');
+    assert.equal(result.points[0].close, 1010);
+  });
+
   test('aggregates intraday points when minute K-lines are unavailable', () => {
     const trend = parseTencentTrendResponse({
       data: {

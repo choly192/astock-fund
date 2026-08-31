@@ -2,7 +2,7 @@
 .vscode/**
 .vscode-test/**
 .chart-preview/**
-.reference-leek-fund/**
+.chan-validation/**
 src/**
 scripts/**
 out/**

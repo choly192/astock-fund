@@ -85,6 +85,7 @@ suite('Brand manifest', () => {
     const files = [
       manifestPath,
       path.join(projectRoot, 'package-lock.json'),
+      path.join(projectRoot, '.vscodeignore'),
       path.join(projectRoot, 'README.md'),
       path.join(projectRoot, 'CHANGELOG.md'),
       ...getTextFiles(path.join(projectRoot, 'src')),

@@ -2,6 +2,7 @@ out/
 node_modules/
 .vscode-test/
 .chart-preview/
+.chan-validation/
 *.vsix
 *.zip
 yarn-error.log

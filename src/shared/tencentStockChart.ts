@@ -5,6 +5,7 @@ import {
 } from './stockChartProtocol';
 
 type TencentKlinePeriod = Exclude<StockChartPeriod, 'trend'>;
+export type TencentAdjustment = 'qfq' | 'hfq';
 
 function asRecord(value: unknown): Record<string, any> | undefined {
   return value && typeof value === 'object' ? value as Record<string, any> : undefined;
@@ -140,7 +141,8 @@ export function parseTencentTrendResponse(
 export function parseTencentKlineResponse(
   value: unknown,
   rawCode: string,
-  period: TencentKlinePeriod
+  period: TencentKlinePeriod,
+  adjustment: TencentAdjustment = 'qfq'
 ): StockChartData {
   const sourceCode = getTencentChartCode(rawCode);
   const item = getStockData(value, sourceCode);
@@ -148,7 +150,7 @@ export function parseTencentKlineResponse(
   const sourcePeriod = intraday ? `m${period.slice(0, -1)}` : period;
   const rows = intraday
     ? item?.[sourcePeriod]
-    : item?.[`qfq${sourcePeriod}`] || item?.[sourcePeriod];
+    : item?.[`${adjustment}${sourcePeriod}`] || item?.[sourcePeriod];
   const quote = getQuote(item, sourceCode);
   const previousClose = Number(item?.prec ?? quote[4]);
   const points: StockChartPoint[] = (Array.isArray(rows) ? rows : []).flatMap(
