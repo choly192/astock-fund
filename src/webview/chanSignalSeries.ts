@@ -1,6 +1,6 @@
 import type { CanvasRenderingTarget2D } from 'fancy-canvas';
-import {
-  customSeriesDefaultOptions,
+import { customSeriesDefaultOptions } from 'lightweight-charts';
+import type {
   CustomSeriesOptions,
   CustomSeriesWhitespaceData,
   ICustomSeriesPaneRenderer,
@@ -8,8 +8,8 @@ import {
   PaneRendererCustomData,
   Time,
 } from 'lightweight-charts';
-import { ChanSignalLevel } from '../chan/engine';
-import { ChanSignalSeriesData } from '../chan/seriesData';
+import type { ChanSignalLevel } from '../chan/engine';
+import type { ChanSignalSeriesData } from '../chan/seriesData';
 
 export const CHAN_SIGNAL_COLORS: Record<ChanSignalLevel, string> = {
   1: '#f0c94d',
@@ -25,7 +25,8 @@ class ChanSignalRenderer implements ICustomSeriesPaneRenderer {
   }
 
   draw(target: CanvasRenderingTarget2D): void {
-    if (!this.data) return;
+    const data = this.data;
+    if (!data) return;
     target.useMediaCoordinateSpace(({ context, mediaSize }) => {
       const rowHeight = mediaSize.height / 3;
       context.save();
@@ -45,11 +46,11 @@ class ChanSignalRenderer implements ICustomSeriesPaneRenderer {
         context.fillText(label, 6, rowHeight * (index + 0.5));
       });
 
-      const range = this.data!.visibleRange;
+      const range = data.visibleRange;
       const from = range ? Math.max(0, Math.floor(range.from)) : 0;
-      const to = range ? Math.min(this.data!.bars.length, Math.ceil(range.to)) : this.data!.bars.length;
+      const to = range ? Math.min(data.bars.length, Math.ceil(range.to)) : data.bars.length;
       for (let index = from; index < to; index += 1) {
-        const bar = this.data!.bars[index];
+        const bar = data.bars[index];
         if (bar.x < 0 || bar.x > mediaSize.width) continue;
         bar.originalData.signals.forEach((signal) => {
           const centerY = rowHeight * (signal.level - 0.5);
