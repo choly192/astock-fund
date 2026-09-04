@@ -9,8 +9,9 @@ import {
   LineStyle,
   Time,
 } from 'lightweight-charts';
-import { analyzeChan, ChanSignal } from '../chan/engine';
-import { buildChanSignalSeriesData } from '../chan/seriesData';
+import { analyzeChan } from '../chan/engine';
+import { buildChanSignalSeriesData, ChanSignalPlot } from '../chan/seriesData';
+import { getTdxReversalRatios } from '../chan/tdxMultiscale';
 import {
   StockChartData,
   StockChartPeriod,
@@ -18,10 +19,16 @@ import {
   StockChartResponseMessage,
 } from '../shared/stockChartProtocol';
 import { ChanSignalPaneView } from './chanSignalSeries';
+import {
+  combineConfirmedAndProvisionalSignals,
+  getCompletedSignalPoints,
+  selectChanSignalsForDisplay,
+} from './chanSignalDisplay';
 import { calculateMovingAverage } from './movingAverage';
 
 interface ChartWebviewState {
   chanSignalsVisible?: boolean;
+  tdxSignalsVisible?: boolean;
 }
 
 interface ChartVsCodeApi {
@@ -128,6 +135,7 @@ const vscode: ChartVsCodeApi =
                     requestId: message.requestId,
                     refresh: message.refresh,
                     marketOpen: true,
+                    activeBarOpen: true,
                     data: createPreviewData(message.period),
                   },
                 })
@@ -146,6 +154,7 @@ const priceElement = document.querySelector<HTMLElement>('.price')!;
 const percentElement = document.querySelector<HTMLElement>('.percent')!;
 const quoteTimeElement = document.querySelector<HTMLElement>('.quote-time')!;
 const chanToggle = document.querySelector<HTMLInputElement>('.chan-toggle input')!;
+const tdxToggle = document.querySelector<HTMLInputElement>('.tdx-toggle input')!;
 const statElements = {
   open: document.querySelector<HTMLElement>('[data-stat="open"]')!,
   high: document.querySelector<HTMLElement>('[data-stat="high"]')!,
@@ -166,6 +175,8 @@ const MOVING_AVERAGES = [
 ] as const;
 const isRealtimePeriod = (period: StockChartPeriod) =>
   period === 'trend' || period.endsWith('m');
+const isTdxMultiscalePeriod = (period: StockChartPeriod) =>
+  Boolean(getTdxReversalRatios(period));
 
 const chart = createChart(container, {
   autoSize: true,
@@ -203,7 +214,9 @@ const latestMovingAverageValues = new Map<number, number>();
 let volumeSeries: any;
 let chanSignalSeries: any;
 let latestChartData: StockChartData | undefined;
+let latestActiveBarOpen = false;
 let chanSignalsVisible = vscode.getState()?.chanSignalsVisible !== false;
+let tdxSignalsVisible = vscode.getState()?.tdxSignalsVisible === true;
 let renderedPeriod: StockChartPeriod | undefined;
 let renderedKind: StockChartData['kind'] | undefined;
 let latestValue: { time: Time; price: number } | undefined;
@@ -233,9 +246,11 @@ function clearSeries(): void {
   movingAverageLegend.replaceChildren();
 }
 
-function syncChanToggle(period: StockChartPeriod): void {
+function syncSignalToggles(period: StockChartPeriod): void {
   chanToggle.checked = chanSignalsVisible;
   chanToggle.disabled = period === 'trend';
+  tdxToggle.checked = tdxSignalsVisible;
+  tdxToggle.disabled = !isTdxMultiscalePeriod(period);
 }
 
 function removeChanSignalPane(): void {
@@ -244,12 +259,28 @@ function removeChanSignalPane(): void {
   chanSignalSeries = undefined;
 }
 
-function renderChanSignalPane(data: StockChartData): void {
-  if (data.kind !== 'candlestick' || !chanSignalsVisible) {
+function renderChanSignalPane(data: StockChartData, activeBarOpen = latestActiveBarOpen): void {
+  const showTdxSignals = tdxSignalsVisible && isTdxMultiscalePeriod(data.period);
+  if (data.kind !== 'candlestick' || (!chanSignalsVisible && !showTdxSignals)) {
     removeChanSignalPane();
     return;
   }
-  const analysis = analyzeChan(data.points, { period: data.period });
+  const analysisOptions = {
+    period: data.period,
+    enableTdxMultiscale: showTdxSignals,
+  };
+  const completedPoints = getCompletedSignalPoints(data.points, data.period, activeBarOpen);
+  const confirmedAnalysis = analyzeChan(completedPoints, analysisOptions);
+  const signalMatches = completedPoints === data.points
+    ? confirmedAnalysis.signalMatches
+    : combineConfirmedAndProvisionalSignals(
+        confirmedAnalysis.signalMatches,
+        analyzeChan(data.points, analysisOptions).signalMatches
+      );
+  const visibleSignals = selectChanSignalsForDisplay(signalMatches, {
+    standardVisible: chanSignalsVisible,
+    tdxVisible: showTdxSignals,
+  });
   if (!chanSignalSeries) {
     chanSignalSeries = chart.addCustomSeries(
       new ChanSignalPaneView(),
@@ -266,17 +297,27 @@ function renderChanSignalPane(data: StockChartData): void {
     });
     chanSignalSeries.getPane().setHeight(66);
   }
-  chanSignalSeries.setData(buildChanSignalSeriesData(data.points, analysis.signals));
+  chanSignalSeries.setData(buildChanSignalSeriesData(data.points, visibleSignals));
 }
 
-function formatChanSignals(signals: readonly ChanSignal[]): string {
-  return signals.map((signal) => `${signal.level}${signal.side === 'buy' ? '买' : '卖'}`).join('/');
+function formatChanSignal(signal: ChanSignalPlot): string {
+  const side = signal.side === 'buy' ? '买' : '卖';
+  const provisional = signal.provisional ? '（预）' : '';
+  if (signal.variant === 'tdx-class-two') return `类2${side}${provisional}`;
+  if (signal.variant === 'tdx-multiscale') return `TDX${signal.level}${side}${provisional}`;
+  return `${signal.level}${side}${provisional}`;
 }
 
-function formatChanSignalDetails(signals: readonly ChanSignal[]): string {
+function formatChanSignals(signals: readonly ChanSignalPlot[]): string {
+  return signals.map(formatChanSignal).join('/');
+}
+
+function formatChanSignalDetails(signals: readonly ChanSignalPlot[]): string {
   return signals.map((signal) =>
-    `${signal.level}${signal.side === 'buy' ? '买' : '卖'}：${signal.reason}；`
-    + `确认于 ${formatChartTime(signal.confirmedTime as Time)}`
+    `${formatChanSignal(signal)}：${signal.reason}；`
+    + (signal.provisional
+      ? '当前分钟 K 未收盘，尚未正式确认'
+      : `确认于 ${formatChartTime(signal.confirmedTime as Time)}`)
   ).join('\n');
 }
 
@@ -350,7 +391,7 @@ function updateQuoteSummary(data: StockChartData): void {
   headline.classList.toggle('fall', change < 0);
 }
 
-function render(data: StockChartData, marketOpen = true): void {
+function render(data: StockChartData, marketOpen = true, activeBarOpen = marketOpen): void {
   const rebuild = !mainSeries || renderedPeriod !== data.period || renderedKind !== data.kind;
   if (rebuild) {
     clearSeries();
@@ -467,8 +508,9 @@ function render(data: StockChartData, marketOpen = true): void {
     color: point.close >= point.open ? 'rgba(238, 75, 90, .48)' : 'rgba(22, 163, 109, .48)',
   }));
   volumeSeries.setData(volumes);
-  renderChanSignalPane(data);
+  renderChanSignalPane(data, activeBarOpen);
   latestChartData = data;
+  latestActiveBarOpen = activeBarOpen;
   if (rebuild) chart.timeScale().fitContent();
   updateQuoteSummary(data);
   const last = data.points[data.points.length - 1];
@@ -500,7 +542,7 @@ function requestPeriod(period: StockChartPeriod, refresh = false): void {
     if (requestPending && Date.now() - requestStartedAt < REQUEST_TIMEOUT_MS) return;
   } else {
     currentPeriod = period;
-    syncChanToggle(period);
+    syncSignalToggles(period);
     tabs.forEach((tab) => {
       const selected = tab.dataset.period === period;
       tab.classList.toggle('active', selected);
@@ -533,7 +575,16 @@ chanToggle.addEventListener('change', () => {
     ...vscode.getState(),
     chanSignalsVisible,
   });
-  if (latestChartData) renderChanSignalPane(latestChartData);
+  if (latestChartData) renderChanSignalPane(latestChartData, latestActiveBarOpen);
+});
+
+tdxToggle.addEventListener('change', () => {
+  tdxSignalsVisible = tdxToggle.checked;
+  vscode.setState({
+    ...vscode.getState(),
+    tdxSignalsVisible,
+  });
+  if (latestChartData) renderChanSignalPane(latestChartData, latestActiveBarOpen);
 });
 
 window.addEventListener('message', (event: MessageEvent<StockChartResponseMessage>) => {
@@ -541,7 +592,9 @@ window.addEventListener('message', (event: MessageEvent<StockChartResponseMessag
   if (!message || message.requestId !== activeRequestId || message.period !== currentPeriod) return;
   requestPending = false;
   if (message.refresh && message.marketOpen === false && !message.data) {
+    latestActiveBarOpen = false;
     latestPoint.classList.remove('live');
+    if (latestChartData) renderChanSignalPane(latestChartData, false);
     return;
   }
   if (message.type === 'chartError' || !message.data) {
@@ -549,7 +602,8 @@ window.addEventListener('message', (event: MessageEvent<StockChartResponseMessag
     setLoading(message.message || '行情数据加载失败', true);
     return;
   }
-  render(message.data, message.marketOpen !== false);
+  const marketOpen = message.marketOpen !== false;
+  render(message.data, marketOpen, message.activeBarOpen ?? marketOpen);
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -586,8 +640,16 @@ chart.subscribeCrosshairMove((param) => {
   const chanText = chanData?.signals?.length
     ? `  缠 ${formatChanSignals(chanData.signals)}`
     : '';
-  if (chanData?.signals?.length) {
-    legend.title = formatChanSignalDetails(chanData.signals);
+  const confirmationText = chanData?.confirmations?.length
+    ? `  确 ${formatChanSignals(chanData.confirmations)}`
+    : '';
+  if (chanData?.signals?.length || chanData?.confirmations?.length) {
+    legend.title = [
+      chanData?.signals?.length ? formatChanSignalDetails(chanData.signals) : '',
+      chanData?.confirmations?.length
+        ? `确认位置：${formatChanSignalDetails(chanData.confirmations)}`
+        : '',
+    ].filter(Boolean).join('\n');
   } else {
     legend.removeAttribute('title');
   }
@@ -601,12 +663,12 @@ chart.subscribeCrosshairMove((param) => {
     renderMovingAverageLegend(movingAverageValues);
     legend.textContent = `${time}  开 ${value.open.toFixed(2)}  高 ${value.high.toFixed(
       2
-    )}  低 ${value.low.toFixed(2)}  收 ${value.close.toFixed(2)}${volumeText}${chanText}`;
+    )}  低 ${value.low.toFixed(2)}  收 ${value.close.toFixed(2)}${volumeText}${chanText}${confirmationText}`;
   } else {
     const averageText = average?.value === undefined ? '' : `  均价 ${average.value.toFixed(2)}`;
     legend.textContent = `${time}  价格 ${value.value.toFixed(2)}${averageText}${volumeText}`;
   }
 });
 
-syncChanToggle('trend');
+syncSignalToggles('trend');
 requestPeriod('trend');

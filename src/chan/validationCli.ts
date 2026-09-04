@@ -27,6 +27,7 @@ function usage(): string {
     '  --regime-ma-bars <60>        市场状态均线窗口',
     '  --regime-slope-bars <20>     市场状态均线斜率间隔',
     '  --regime-threshold <0.005>   趋势状态最小偏离比例',
+    '  --enable-tdx-multiscale      启用不重绘的通达信多尺度实验信号',
   ].join('\n');
 }
 
@@ -61,10 +62,15 @@ export function parseCliOptions(args: readonly string[]): CliOptions {
   let regimeMaBars: number | undefined;
   let regimeSlopeBars: number | undefined;
   let regimeThreshold: number | undefined;
+  let enableTdxMultiscale: boolean | undefined;
 
   for (let index = 0; index < args.length; index += 1) {
     const flag = args[index];
     if (flag === '--help' || flag === '-h') throw new Error(usage());
+    if (flag === '--enable-tdx-multiscale') {
+      enableTdxMultiscale = true;
+      continue;
+    }
     const value = readValue(args, index, flag);
     index += 1;
     if (flag === '--input') inputPath = value;
@@ -91,6 +97,7 @@ export function parseCliOptions(args: readonly string[]): CliOptions {
     regimeMaBars,
     regimeSlopeBars,
     regimeThreshold,
+    enableTdxMultiscale,
   };
 }
 
@@ -108,6 +115,7 @@ export function runCli(args: readonly string[]): void {
     regimeMaBars: options.regimeMaBars,
     regimeSlopeBars: options.regimeSlopeBars,
     regimeThreshold: options.regimeThreshold,
+    enableTdxMultiscale: options.enableTdxMultiscale,
   });
   const output = `${JSON.stringify(report, null, 2)}\n`;
   if (options.outputPath) {

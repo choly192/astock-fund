@@ -8,11 +8,7 @@ function display(value: string | number | undefined): string {
   return value === undefined || value === '' ? '--' : escapeHtml(String(value));
 }
 
-export function getStockTrendHtml(
-  info: StockInfo,
-  scriptUri: string,
-  cspSource: string
-): string {
+export function getStockTrendHtml(info: StockInfo, scriptUri: string, cspSource: string): string {
   const target = getEastMoneyStockTarget(info.code);
   const title = `${escapeHtml(info.name)} (${escapeHtml(info.code.toUpperCase())})`;
   const percentValue = Number(info.percent);
@@ -20,7 +16,11 @@ export function getStockTrendHtml(
     ? `${percentValue >= 0 ? '+' : ''}${percentValue.toFixed(2)}%`
     : '--';
   const trendClass = Number.isFinite(percentValue)
-    ? percentValue > 0 ? 'rise' : percentValue < 0 ? 'fall' : ''
+    ? percentValue > 0
+      ? 'rise'
+      : percentValue < 0
+      ? 'fall'
+      : ''
     : '';
   const safeUrl = escapeHtml(target.url);
   return `<!doctype html>
@@ -28,7 +28,9 @@ export function getStockTrendHtml(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src ${escapeHtml(cspSource)};">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src ${escapeHtml(
+    cspSource
+  )};">
   <title>${title}</title>
   <style>
     :root { color-scheme: dark; }
@@ -58,14 +60,16 @@ export function getStockTrendHtml(
     .period-tab:hover, .period-tab.active { color: #f1f2f4; }
     .period-tab:focus-visible { outline: 1px solid #ee4b5a; outline-offset: -3px; }
     .period-tab.active::after { position: absolute; right: 12px; bottom: 0; left: 12px; height: 2px; background: #ee4b5a; content: ""; }
-    .chan-toggle { position: relative; display: flex; flex: 0 0 auto; align-items: center; gap: 7px; padding: 0 13px; border-left: 1px solid #24272d; color: #8f949d; font-size: 11px; cursor: pointer; user-select: none; }
-    .chan-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+    .signal-toggle { position: relative; display: flex; flex: 0 0 auto; align-items: center; gap: 7px; padding: 0 13px; border-left: 1px solid #24272d; color: #8f949d; font-size: 11px; cursor: pointer; user-select: none; }
+    .signal-toggle input { position: absolute; width: 1px; height: 1px; opacity: 0; }
     .toggle-track { position: relative; width: 28px; height: 15px; border: 1px solid #4b5059; border-radius: 8px; background: #25282e; transition: border-color .16s ease, background .16s ease; }
     .toggle-track::after { position: absolute; top: 2px; left: 2px; width: 9px; height: 9px; border-radius: 50%; background: #878c95; content: ""; transition: transform .16s ease, background .16s ease; }
-    .chan-toggle input:checked + .toggle-track { border-color: #b0414c; background: #642a31; }
-    .chan-toggle input:checked + .toggle-track::after { background: #f1b0b7; transform: translateX(13px); }
-    .chan-toggle input:focus-visible + .toggle-track { outline: 1px solid #ee4b5a; outline-offset: 2px; }
-    .chan-toggle input:disabled + .toggle-track, .chan-toggle input:disabled ~ span:last-child { opacity: .38; }
+    .signal-toggle input:checked + .toggle-track { border-color: #b0414c; background: #642a31; }
+    .signal-toggle input:checked + .toggle-track::after { background: #f1b0b7; transform: translateX(13px); }
+    .tdx-toggle input:checked + .toggle-track { border-color: #8c7624; background: #554817; }
+    .tdx-toggle input:checked + .toggle-track::after { background: #f0c94d; }
+    .signal-toggle input:focus-visible + .toggle-track { outline: 1px solid #ee4b5a; outline-offset: 2px; }
+    .signal-toggle input:disabled + .toggle-track, .signal-toggle input:disabled ~ span:last-child { opacity: .38; }
     .chart-wrap { position: relative; min-height: 0; background: #0b0d10; }
     .chart { position: absolute; inset: 0; }
     .loading { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; color: #777d87; background: #0b0d10; font-size: 12px; }
@@ -94,8 +98,12 @@ export function getStockTrendHtml(
     <header class="quote">
       <section class="identity">
         <h1>${escapeHtml(info.name)}</h1>
-        <div class="meta">${escapeHtml(info.code.toUpperCase())} · ${display(info.source)} · <span class="quote-time">${display(info.time)}</span></div>
-        <div class="headline ${trendClass}"><span class="price">${display(info.price)}</span><span class="percent">${percent}</span></div>
+        <div class="meta">${escapeHtml(info.code.toUpperCase())} · ${display(
+    info.source
+  )} · <span class="quote-time">${display(info.time)}</span></div>
+        <div class="headline ${trendClass}"><span class="price">${display(
+    info.price
+  )}</span><span class="percent">${percent}</span></div>
       </section>
       <dl class="stats">
         <div><dt>今开</dt><dd data-stat="open">${display(info.open)}</dd></div>
@@ -119,10 +127,15 @@ export function getStockTrendHtml(
         <button class="period-tab" role="tab" aria-selected="false" data-period="30m">30 分</button>
         <button class="period-tab" role="tab" aria-selected="false" data-period="60m">60 分</button>
       </nav>
-      <label class="chan-toggle" title="显示或隐藏缠论买卖点">
+      <label class="signal-toggle chan-toggle" title="显示或隐藏标准缠论买卖点">
         <input type="checkbox" role="switch" aria-label="显示缠论信号" checked>
         <span class="toggle-track" aria-hidden="true"></span>
         <span>缠论</span>
+      </label>
+      <label class="signal-toggle tdx-toggle" title="显示或隐藏通达信多尺度实验信号，支持日 K、周 K 和分钟 K">
+        <input type="checkbox" role="switch" aria-label="显示通达信多尺度实验信号">
+        <span class="toggle-track" aria-hidden="true"></span>
+        <span>新缠论</span>
       </label>
     </div>
     <section class="chart-wrap">

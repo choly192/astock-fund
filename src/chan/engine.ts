@@ -3,18 +3,24 @@ import {
   classifyMarketRegime,
   DEFAULT_CHAN_MARKET_REGIME_OPTIONS,
 } from './marketRegime';
+import {
+  analyzeTdxMultiscale,
+  TdxMultiscaleSignalCandidate,
+} from './tdxMultiscale';
 
-export const CHAN_ALGORITHM_VERSION = '1.0.5';
+export const CHAN_ALGORITHM_VERSION = '1.1.1';
 
 export type ChanDirection = 'up' | 'down';
 export type ChanFractalType = 'top' | 'bottom';
 export type ChanSignalSide = 'buy' | 'sell';
 export type ChanSignalLevel = 1 | 2 | 3;
-export type ChanSignalVariant = 'standard' | 'local-divergence' | 'local-second';
+export type ChanSignalVariant = 'standard' | 'local-divergence' | 'local-second'
+  | 'tdx-multiscale' | 'tdx-class-two';
 export type ChanTime = StockChartPoint['time'];
 
 export interface ChanAnalysisOptions {
   period?: StockChartPeriod;
+  enableTdxMultiscale?: boolean;
 }
 
 export interface ChanMergedBar extends StockChartPoint {
@@ -562,6 +568,29 @@ function deduplicateChanSignalMatches(signalMatches: readonly ChanSignal[]): Cha
     .sort((left, right) => left.confirmedIndex - right.confirmedIndex || left.level - right.level);
 }
 
+function createTdxMultiscaleSignal(candidate: TdxMultiscaleSignalCandidate): ChanSignal {
+  return {
+    id: `tdx:${candidate.variant}:${candidate.time}:${candidate.side}:${candidate.level}`,
+    side: candidate.side,
+    level: candidate.level,
+    variant: candidate.variant,
+    time: candidate.time,
+    price: candidate.price,
+    strokeIndex: -1,
+    confirmedIndex: candidate.confirmedIndex,
+    confirmedTime: candidate.confirmedTime,
+    reason: candidate.reason,
+    algorithmVersion: CHAN_ALGORITHM_VERSION,
+  };
+}
+
+export function detectTdxMultiscaleSignals(
+  points: readonly StockChartPoint[],
+  period?: StockChartPeriod
+): ChanSignal[] {
+  return analyzeTdxMultiscale(points, period).signals.map(createTdxMultiscaleSignal);
+}
+
 export function detectChanSignals(
   strokes: readonly ChanStroke[],
   centers: readonly ChanCenter[],
@@ -580,7 +609,14 @@ export function analyzeChan(
   const strokes = buildChanStrokes(fractals);
   const stableStrokes = strokes.length > 1 ? strokes.slice(0, -1) : [];
   const centers = findChanCenters(stableStrokes);
-  const signalMatches = detectChanSignalMatches(strokes, centers, points, options.period);
+  const signalMatches = [
+    ...detectChanSignalMatches(strokes, centers, points, options.period),
+    ...(options.enableTdxMultiscale
+      ? detectTdxMultiscaleSignals(points, options.period)
+      : []),
+  ].sort((left, right) =>
+    left.confirmedIndex - right.confirmedIndex || left.level - right.level
+  );
   return {
     algorithmVersion: CHAN_ALGORITHM_VERSION,
     mergedBars,

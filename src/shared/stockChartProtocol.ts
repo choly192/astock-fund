@@ -30,6 +30,7 @@ export interface StockChartResponseMessage {
   requestId: number;
   refresh?: boolean;
   marketOpen?: boolean;
+  activeBarOpen?: boolean;
   data?: StockChartData;
   message?: string;
 }

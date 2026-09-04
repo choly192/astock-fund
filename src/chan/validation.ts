@@ -1,6 +1,7 @@
 import {
   analyzeChan,
   CHAN_ALGORITHM_VERSION,
+  ChanAnalysisOptions,
   ChanSignal,
   ChanSignalLevel,
   ChanSignalSide,
@@ -17,7 +18,7 @@ import {
 export { classifyMarketRegime } from './marketRegime';
 export type { ChanMarketRegime } from './marketRegime';
 
-export const CHAN_VALIDATION_SCHEMA_VERSION = '1.3.0';
+export const CHAN_VALIDATION_SCHEMA_VERSION = '1.4.0';
 
 export type ChanValidationPeriod = Exclude<StockChartPeriod, 'trend'>;
 export type ChanStabilityViolationKind = 'future-confirmation' | 'missing' | 'mutated';
@@ -65,6 +66,7 @@ export interface ChanBacktestOptions {
   regimeMaBars: number;
   regimeSlopeBars: number;
   regimeThreshold: number;
+  enableTdxMultiscale: boolean;
 }
 
 export interface ChanTradeEvaluation {
@@ -220,6 +222,7 @@ const DEFAULT_OPTIONS: ChanBacktestOptions = {
   sellTaxBps: 5,
   slippageBps: 2,
   developmentRatio: 0.7,
+  enableTdxMultiscale: false,
   ...DEFAULT_CHAN_MARKET_REGIME_OPTIONS,
 };
 
@@ -371,6 +374,11 @@ export function normalizeChanBacktestOptions(
   if (!Number.isFinite(regimeThreshold) || regimeThreshold < 0) {
     throw new Error('regimeThreshold 必须是非负有限数字');
   }
+  const enableTdxMultiscale = options.enableTdxMultiscale
+    ?? DEFAULT_OPTIONS.enableTdxMultiscale;
+  if (typeof enableTdxMultiscale !== 'boolean') {
+    throw new Error('enableTdxMultiscale 必须是布尔值');
+  }
   return {
     horizons,
     feeBps,
@@ -380,6 +388,7 @@ export function normalizeChanBacktestOptions(
     regimeMaBars,
     regimeSlopeBars,
     regimeThreshold,
+    enableTdxMultiscale,
   };
 }
 
@@ -389,7 +398,8 @@ function changedSignalFields(left: ChanSignal, right: ChanSignal): string[] {
 
 export function replayChanAnalysis(
   points: readonly StockChartPoint[],
-  period?: ChanValidationPeriod
+  period?: ChanValidationPeriod,
+  analysisOptions: Pick<ChanAnalysisOptions, 'enableTdxMultiscale'> = {}
 ): ChanReplayResult {
   const observedSignals = new Map<string, ChanReplaySignal>();
   const observedRuleSignals = new Map<string, ChanReplaySignal>();
@@ -451,7 +461,10 @@ export function replayChanAnalysis(
   };
 
   points.forEach((_point, index) => {
-    const analysis = analyzeChan(points.slice(0, index + 1), { period });
+    const analysis = analyzeChan(points.slice(0, index + 1), {
+      period,
+      enableTdxMultiscale: analysisOptions.enableTdxMultiscale,
+    });
     observe(analysis.signals, observedSignals, index, false);
     observe(analysis.signalMatches, observedRuleSignals, index, true);
   });
@@ -685,7 +698,7 @@ function buildVariantMetrics(
 }
 
 const CHAN_SIGNAL_VARIANTS: readonly ChanSignalVariant[] = [
-  'standard', 'local-divergence', 'local-second',
+  'standard', 'local-divergence', 'local-second', 'tdx-multiscale', 'tdx-class-two',
 ];
 
 interface ChanOpportunityOptions {
@@ -958,7 +971,9 @@ export function runChanValidation(
   const reports = datasets.map((dataset) => {
     if (!dataset.points.length) throw new Error(`${dataset.symbol} 的行情数据为空`);
     const assetType = dataset.assetType ?? inferChanAssetType(dataset.symbol);
-    const replay = replayChanAnalysis(dataset.points, dataset.period);
+    const replay = replayChanAnalysis(dataset.points, dataset.period, {
+      enableTdxMultiscale: normalized.enableTdxMultiscale,
+    });
     const trades = evaluateChanSignals(dataset, replay, normalized);
     const ruleTrades = evaluateChanSignals(dataset, replay, normalized, replay.ruleSignals);
     const upsideOpportunities = evaluateUpsideOpportunities(dataset, replay, normalized);

@@ -52,19 +52,48 @@ class ChanSignalRenderer implements ICustomSeriesPaneRenderer {
       for (let index = from; index < to; index += 1) {
         const bar = data.bars[index];
         if (bar.x < 0 || bar.x > mediaSize.width) continue;
+        bar.originalData.confirmations.forEach((signal) => {
+          const centerY = rowHeight * (signal.level - 0.5);
+          context.save();
+          context.globalAlpha = signal.provisional ? 0.55 : 0.9;
+          context.beginPath();
+          context.arc(bar.x, centerY, signal.provisional ? 3 : 2.3, 0, Math.PI * 2);
+          if (signal.provisional) {
+            context.strokeStyle = CHAN_SIGNAL_COLORS[signal.level];
+            context.lineWidth = 1.2;
+            context.setLineDash([2, 2]);
+            context.stroke();
+          } else {
+            context.fillStyle = CHAN_SIGNAL_COLORS[signal.level];
+            context.fill();
+          }
+          context.restore();
+        });
         bar.originalData.signals.forEach((signal) => {
           const centerY = rowHeight * (signal.level - 0.5);
           const size = 6;
           const apexY = signal.side === 'buy' ? centerY - size : centerY + size;
           const baseY = signal.side === 'buy' ? centerY + size : centerY - size;
+          const tdxSignal = signal.variant.startsWith('tdx-');
+          context.save();
+          context.globalAlpha = signal.provisional ? 0.55 : 1;
+          context.setLineDash(signal.provisional ? [3, 2] : []);
           context.beginPath();
           context.moveTo(bar.x, apexY);
           context.lineTo(bar.x - size, baseY);
           context.lineTo(bar.x + size, baseY);
           context.closePath();
           context.strokeStyle = CHAN_SIGNAL_COLORS[signal.level];
-          context.lineWidth = 1.5;
+          context.lineWidth = tdxSignal ? 2.2 : 1.25;
           context.stroke();
+          if (tdxSignal) {
+            context.setLineDash([]);
+            context.beginPath();
+            context.moveTo(bar.x - 2.5, centerY);
+            context.lineTo(bar.x + 2.5, centerY);
+            context.stroke();
+          }
+          context.restore();
         });
       }
       context.restore();

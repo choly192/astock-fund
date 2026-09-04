@@ -113,6 +113,11 @@ function isInSession(value: ZonedClock, sessions: Array<[number, number]>): bool
   return sessions.some(([start, end]) => isBetweenMinutes(value, start, end));
 }
 
+function isInHalfOpenSession(value: ZonedClock, sessions: Array<[number, number]>): boolean {
+  const current = value.hour * 60 + value.minute;
+  return sessions.some(([start, end]) => current >= start && current < end);
+}
+
 export function getOpenStockCodes(codes: string[], now = new Date()): string[] {
   const shanghai = getZonedClock(now, 'Asia/Shanghai');
   const newYork = getZonedClock(now, 'America/New_York');
@@ -136,6 +141,28 @@ export function getOpenStockCodes(codes: string[], now = new Date()): string[] {
 
 export function isAnyStockMarketOpen(codes: string[], now = new Date()): boolean {
   return getOpenStockCodes(codes, now).length > 0;
+}
+
+export function isAnyStockRegularMarketOpen(codes: string[], now = new Date()): boolean {
+  const shanghai = getZonedClock(now, 'Asia/Shanghai');
+  const newYork = getZonedClock(now, 'America/New_York');
+  const mainlandOpen = isWeekday(shanghai) && isInHalfOpenSession(shanghai, [
+    [9 * 60 + 30, 11 * 60 + 30],
+    [13 * 60, 15 * 60],
+  ]);
+  const hongKongOpen = isWeekday(shanghai) && isInHalfOpenSession(shanghai, [
+    [9 * 60 + 30, 12 * 60],
+    [13 * 60, 16 * 60],
+  ]);
+  const usOpen = isWeekday(newYork)
+    && isInHalfOpenSession(newYork, [[9 * 60 + 30, 16 * 60]]);
+
+  return uniqueCodes(codes).some((code) => {
+    if (/^(sh|sz|bj)/i.test(code)) return mainlandOpen;
+    if (/^hk/i.test(code)) return hongKongOpen;
+    if (/^(usr_|gb_)/i.test(code)) return usOpen;
+    return false;
+  });
 }
 
 export function escapeHtml(value: string): string {

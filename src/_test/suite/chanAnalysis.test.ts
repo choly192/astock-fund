@@ -6,14 +6,24 @@ import {
   detectChanSignalMatches,
   detectChanFractals,
   detectChanSignals,
+  detectTdxMultiscaleSignals,
   findChanCenters,
   mergeIncludedBars,
 } from '../../chan/engine';
 import { StockChartPoint } from '../../shared/stockChartProtocol';
 import { buildChanSignalSeriesData } from '../../chan/seriesData';
+import {
+  analyzeTdxMultiscale,
+  detectCausalZigZag,
+  getTdxReversalRatios,
+} from '../../chan/tdxMultiscale';
 
 function point(time: number, high: number, low: number, close = (high + low) / 2): StockChartPoint {
   return { time, open: close, high, low, close, volume: 1 };
+}
+
+function closePoints(closes: readonly number[]): StockChartPoint[] {
+  return closes.map((close, index) => point(index, close, close, close));
 }
 
 function fractal(type: ChanFractal['type'], sequence: number, price: number): ChanFractal {
@@ -181,6 +191,111 @@ suite('Chan analysis', () => {
     ).filter((signal) => signal.time === 13).length, 1);
   });
 
+  test('confirms causal ZigZag pivots only after the required reversal', () => {
+    const beforeTopConfirmation = closePoints([100, 105, 121]);
+    const initialPivots = detectCausalZigZag(beforeTopConfirmation, 0.1);
+    assert.deepStrictEqual(initialPivots.map(({ type, index, confirmedIndex }) => ({
+      type, index, confirmedIndex,
+    })), [{ type: 'bottom', index: 0, confirmedIndex: 2 }]);
+
+    const confirmed = detectCausalZigZag(
+      closePoints([100, 105, 121, 108]),
+      0.1
+    );
+    assert.deepStrictEqual(confirmed.map(({ type, index, confirmedIndex }) => ({
+      type, index, confirmedIndex,
+    })), [
+      { type: 'bottom', index: 0, confirmedIndex: 2 },
+      { type: 'top', index: 2, confirmedIndex: 3 },
+    ]);
+
+    const extended = detectCausalZigZag(
+      closePoints([100, 105, 121, 108, 140, 130]),
+      0.1
+    );
+    assert.deepStrictEqual(extended.slice(0, confirmed.length), confirmed);
+    assert.throws(() => detectCausalZigZag(beforeTopConfirmation, 0), /reversalRatio/);
+  });
+
+  test('maps confirmed multi-scale turns to separate TDX signal variants', () => {
+    const points = closePoints([100, 80, 90, 75, 95, 110, 97, 112, 80, 90, 75]);
+    const analysis = analyzeTdxMultiscale(points, 'day');
+
+    assert.ok(analysis.smallPivots.length >= analysis.mediumPivots.length);
+    assert.ok(analysis.mediumPivots.length >= analysis.largePivots.length);
+    assert.deepStrictEqual(
+      analysis.signals.map(({ side, level, variant, pivotIndex, confirmedIndex }) => ({
+        side, level, variant, pivotIndex, confirmedIndex,
+      })),
+      [
+        { side: 'buy', level: 2, variant: 'tdx-class-two', pivotIndex: 1, confirmedIndex: 2 },
+        { side: 'sell', level: 2, variant: 'tdx-multiscale', pivotIndex: 2, confirmedIndex: 3 },
+        { side: 'buy', level: 1, variant: 'tdx-multiscale', pivotIndex: 3, confirmedIndex: 4 },
+        { side: 'sell', level: 2, variant: 'tdx-class-two', pivotIndex: 5, confirmedIndex: 6 },
+        { side: 'buy', level: 2, variant: 'tdx-multiscale', pivotIndex: 6, confirmedIndex: 7 },
+        { side: 'sell', level: 1, variant: 'tdx-multiscale', pivotIndex: 7, confirmedIndex: 8 },
+        { side: 'buy', level: 2, variant: 'tdx-class-two', pivotIndex: 8, confirmedIndex: 9 },
+        { side: 'sell', level: 2, variant: 'tdx-multiscale', pivotIndex: 9, confirmedIndex: 10 },
+      ]
+    );
+    analysis.signals.forEach((signal) => {
+      assert.ok(signal.confirmedIndex > signal.pivotIndex);
+      const firstVisible = analyzeTdxMultiscale(
+        points.slice(0, signal.confirmedIndex + 1),
+        'day'
+      ).signals;
+      assert.ok(firstVisible.some((candidate) =>
+        candidate.time === signal.time
+        && candidate.side === signal.side
+        && candidate.level === signal.level
+        && candidate.variant === signal.variant
+      ));
+    });
+  });
+
+  test('keeps TDX multi-scale signals behind the experiment switch on supported periods', () => {
+    const points = closePoints([100, 80, 90, 75, 95, 110, 97, 112]);
+    assert.deepStrictEqual(
+      analyzeChan(points, { period: 'day' }).signals
+        .filter((signal) => signal.variant.startsWith('tdx-')),
+      []
+    );
+    assert.ok(analyzeChan(points, { period: 'day', enableTdxMultiscale: true }).signals
+      .some((signal) => signal.variant === 'tdx-multiscale'));
+    assert.ok(detectTdxMultiscaleSignals(points, '60m').length > 0);
+    assert.deepStrictEqual(detectTdxMultiscaleSignals(points, 'month'), []);
+  });
+
+  test('uses period-specific reversal ratios for minute TDX signals', () => {
+    assert.deepStrictEqual(getTdxReversalRatios('day'), {
+      small: 0.05,
+      medium: 0.1,
+      large: 0.2,
+    });
+    assert.deepStrictEqual(getTdxReversalRatios('5m'), {
+      small: 0.003,
+      medium: 0.006,
+      large: 0.012,
+    });
+    assert.deepStrictEqual(getTdxReversalRatios('60m'), {
+      small: 0.01,
+      medium: 0.02,
+      large: 0.04,
+    });
+    assert.equal(getTdxReversalRatios('month'), undefined);
+
+    const minuteSignals = analyzeTdxMultiscale(
+      closePoints([100, 98, 99, 97, 99, 101, 99, 101]),
+      '5m'
+    ).signals;
+    assert.ok(minuteSignals.some((signal) =>
+      signal.variant === 'tdx-multiscale' && signal.reason.includes('1.2%')
+    ));
+    assert.ok(minuteSignals.some((signal) =>
+      signal.variant === 'tdx-class-two' && signal.reason.includes('0.6%')
+    ));
+  });
+
   test('binds signals to the matching chart time', () => {
     const points = [point(1, 11, 9), point(2, 12, 10), point(3, 13, 11)];
     const signal = {
@@ -198,6 +313,8 @@ suite('Chan analysis', () => {
     };
     const data = buildChanSignalSeriesData(points, [signal]);
     assert.deepStrictEqual(data.map((item) => item.signals.length), [0, 1, 0]);
+    assert.deepStrictEqual(data.map((item) => item.confirmations.length), [0, 0, 1]);
     assert.equal(data[1].signals[0], signal);
+    assert.equal(data[2].confirmations[0], signal);
   });
 });

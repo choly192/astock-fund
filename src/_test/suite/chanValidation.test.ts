@@ -50,6 +50,18 @@ function validationPoints(): StockChartPoint[] {
   return points;
 }
 
+function tdxValidationPoints(): StockChartPoint[] {
+  return [100, 80, 90, 75, 95, 110, 97, 112, 80, 90, 75, 96, 82, 105]
+    .map((close, index) => ({
+      time: index + 1,
+      open: close,
+      high: close,
+      low: close,
+      close,
+      volume: 1000,
+    }));
+}
+
 suite('Chan algorithm validation', () => {
   test('trims invalid leading adjusted prices from collected history', () => {
     const points = validationPoints().slice(0, 3);
@@ -78,6 +90,35 @@ suite('Chan algorithm validation', () => {
         .some((item) => item.id === signal.id));
     });
     assert.deepStrictEqual(replay.stabilityViolations, []);
+  });
+
+  test('replays the optional TDX signals without future or mutation violations', () => {
+    const points = tdxValidationPoints();
+    const defaultReplay = replayChanAnalysis(points, 'day');
+    assert.ok(!defaultReplay.ruleSignals.some((signal) => signal.variant.startsWith('tdx-')));
+
+    const replay = replayChanAnalysis(points, 'day', { enableTdxMultiscale: true });
+    const tdxSignals = replay.ruleSignals.filter((signal) => signal.variant.startsWith('tdx-'));
+    assert.ok(tdxSignals.length > 0);
+    tdxSignals.forEach((signal) => {
+      assert.equal(signal.firstSeenIndex, signal.confirmedIndex);
+      assert.equal(signal.confirmationLagBars, 0);
+      assert.ok(signal.confirmedIndex > points.findIndex((point) => point.time === signal.time));
+    });
+    assert.deepStrictEqual(replay.stabilityViolations, []);
+
+    const report = runChanValidation([{
+      symbol: 'fixture-tdx',
+      period: 'day',
+      points,
+    }], {
+      horizons: [1],
+      enableTdxMultiscale: true,
+    });
+    assert.equal(report.options.enableTdxMultiscale, true);
+    assert.ok(report.variantMetrics.some((metric) =>
+      metric.variant === 'tdx-multiscale' && metric.tradeCount > 0
+    ));
   });
 
   test('evaluates the next bar and applies round-trip costs', () => {
@@ -243,7 +284,7 @@ suite('Chan algorithm validation', () => {
       assert.equal(second.status, 0, second.stderr);
       assert.equal(fs.readFileSync(firstOutput, 'utf8'), fs.readFileSync(secondOutput, 'utf8'));
       const report = JSON.parse(fs.readFileSync(firstOutput, 'utf8'));
-      assert.equal(report.schemaVersion, '1.3.0');
+      assert.equal(report.schemaVersion, '1.4.0');
       assert.equal(report.summary.signalCount, 2);
       const positional = spawnSync(process.execPath, [
         validationCli,

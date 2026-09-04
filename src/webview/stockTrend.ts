@@ -2,7 +2,7 @@ import { Disposable, ExtensionContext, Uri, ViewColumn } from 'vscode';
 import { StockTrendService } from '../explorer/stockTrendService';
 import { StockChartPeriod, StockChartRequestMessage, StockChartResponseMessage } from '../shared/stockChartProtocol';
 import { StockInfo } from '../shared/typed';
-import { isAnyStockMarketOpen } from '../shared/utils';
+import { isAnyStockMarketOpen, isAnyStockRegularMarketOpen } from '../shared/utils';
 import { createReusedWebviewPanel } from './ReusedWebviewPanel';
 import { getStockTrendHtml } from './stockTrendHtml';
 
@@ -31,6 +31,7 @@ export default function stockTrend(context: ExtensionContext, info: StockInfo): 
   messageListener = panel.webview.onDidReceiveMessage(async (message: StockChartRequestMessage) => {
     if (message?.type !== 'loadPeriod' || !periods.has(message.period)) return;
     const marketOpen = isAnyStockMarketOpen([info.code]);
+    const activeBarOpen = isAnyStockRegularMarketOpen([info.code]);
     if (message.refresh && isRealtimePeriod(message.period) && !marketOpen) {
       const response: StockChartResponseMessage = {
         type: 'chartData',
@@ -38,6 +39,7 @@ export default function stockTrend(context: ExtensionContext, info: StockInfo): 
         requestId: message.requestId,
         refresh: true,
         marketOpen: false,
+        activeBarOpen: false,
       };
       await panel.webview.postMessage(response);
       return;
@@ -55,6 +57,7 @@ export default function stockTrend(context: ExtensionContext, info: StockInfo): 
         requestId: message.requestId,
         refresh: message.refresh,
         marketOpen,
+        activeBarOpen,
         data,
       };
       await panel.webview.postMessage(response);
@@ -67,6 +70,7 @@ export default function stockTrend(context: ExtensionContext, info: StockInfo): 
         requestId: message.requestId,
         refresh: message.refresh,
         marketOpen,
+        activeBarOpen,
         message: '该周期行情暂时无法加载，请稍后重试',
       };
       await panel.webview.postMessage(response);
